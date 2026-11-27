@@ -126,6 +126,14 @@ The checks run with the job's environment, minus Patchhound's and GitHub's token
 
 The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's previews only for commits by members of its team, so it skips such a PR: set `fix.commit_as: actor` to make the person GitHub names as the run's actor (who started it) the author. `github-actions[bot]` stays the committer, which is how Patchhound tells its own commits from a person's.
 
+## Fixes for a branch other than the default (staging)
+
+If your team merges work into staging before it reaches the default branch, send the fix PRs there: `npx patchhound init --branch staging` (init also offers it when the repo has a `staging` or `develop` branch). The workflow then sets `PATCHHOUND_BASE: staging`, and all three jobs check out staging: the scan reads staging's lockfile, and the fix PR goes to staging.
+
+The setup PR goes to staging too, and merging it starts the first run. GitHub runs schedules only from the default branch, so scheduled runs begin once the workflow reaches it with your next release. A fix PR already open against the old branch is pointed at the new one on the next run.
+
+By hand: add `env: { PATCHHOUND_BASE: staging }` at the top of the workflow, and `ref: ${{ env.PATCHHOUND_BASE }}` to each job's `actions/checkout`.
+
 ## What a run does
 
 1. **Scan and triage** the lockfile and the code; alert on what is new or worse (once, then again only when it gets worse); a weekly digest of the rest.

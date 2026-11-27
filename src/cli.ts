@@ -127,7 +127,8 @@ program
 async function signalFixJob(dir: string, result: ScanResult, assessment: Assessment | null, dryRun: boolean): Promise<void> {
   const stateDir = join(dir, '.patchhound');
   const decision = assessment
-    ? decideFix(fixWork(result, assessment), await dependencyFiles(dir, result.lockfile), await readSignal(stateDir), new Date(), process.env.GITHUB_RUN_ID)
+    ? // The branch fixes go to is part of it: switching it (main, then staging) is a change.
+      decideFix(fixWork(result, assessment), `base: ${process.env.PATCHHOUND_BASE ?? ''}\n${await dependencyFiles(dir, result.lockfile)}`, await readSignal(stateDir), new Date(), process.env.GITHUB_RUN_ID)
     : { fix: true, reason: 'triage did not finish', next: undefined };
   if (!dryRun && decision.next !== undefined) {
     await mkdir(stateDir, { recursive: true });
@@ -341,12 +342,13 @@ program
   .option('--vercel', 'the repo deploys on Vercel: fix commits are authored by the person who started the run, so Vercel builds the preview')
   .option('--no-vercel', 'the repo does not deploy on Vercel (do not ask)')
   .option('--api-key', 'use an Anthropic API key (secret ANTHROPIC_API_KEY) instead of a Claude token')
+  .option('--branch <name>', 'the branch fix PRs go to, when it is not the default branch (staging, say)')
   .option('--schedule <cron>', 'when scheduled runs start (cron, UTC)', DEFAULT_SCHEDULE)
   .option('--no-pr', 'write the files into [dir] instead of opening a setup PR')
   .option('--force', 'replace a Patchhound workflow already there')
   .option('--action <ref>', 'the Action the workflow runs, owner/repo@ref (default: this copy of Patchhound)')
   .option('--config-only', 'only write a starter .patchhound.yml, with every setting')
-  .action(async (dir: string, options: { vercel?: boolean; apiKey?: boolean; schedule: string; pr: boolean; force?: boolean; action?: string; configOnly?: boolean }) => {
+  .action(async (dir: string, options: { vercel?: boolean; apiKey?: boolean; branch?: string; schedule: string; pr: boolean; force?: boolean; action?: string; configOnly?: boolean }) => {
     if (options.configOnly) {
       process.stdout.write(`Wrote ${await initConfig(dir)}. Notifications stay in dry run until you set dry_run: false.\n`);
       return;
@@ -357,6 +359,7 @@ program
       action,
       ...(options.vercel !== undefined ? { vercel: options.vercel } : {}),
       apiKey: options.apiKey ?? false,
+      ...(options.branch !== undefined ? { branch: options.branch } : {}),
       schedule: options.schedule,
       pr: options.pr,
       force: options.force ?? false,
@@ -378,6 +381,7 @@ program
         `Patchhound is set up for ${result.repo}:`,
         result.files.length > 0 ? `  files: ${result.files.join(', ')}${result.pr ? ` in ${result.pr}${result.merged ? ' (merged)' : ''}` : ''}` : '  files: already in the repo',
         `  Action: ${action}`,
+        `  Fix PRs go to: ${result.branch}`,
         `  Claude secret: ${secret(result.secrets.claude)}`,
         `  Jev key: ${secret(result.secrets.jev)}`,
         `  Slack alerts: ${secret(result.secrets.slack)}`,

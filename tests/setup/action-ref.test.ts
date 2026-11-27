@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { git } from '../../src/fix/git.js';
+import { git, repoInfo } from '../../src/fix/git.js';
 import { defaultAction } from '../../src/setup/action-ref.js';
 
 describe('the Action init writes into the workflow', () => {
@@ -33,5 +33,20 @@ describe('the Action init writes into the workflow', () => {
     expect(await defaultAction({}, pkg)).toBe('acme/patchhound@v0');
     await writeFile(join(pkg, 'package.json'), JSON.stringify({ version: '1.4.2', repository: 'github:acme/patchhound' }));
     expect(await defaultAction({}, pkg)).toBe('acme/patchhound@v1');
+  });
+});
+
+describe('the branch fixes go to', () => {
+  it('is PATCHHOUND_BASE when the workflow sets it, else the default branch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'patchhound-base-'));
+    try {
+      await git(root, ['init', '-q', '-b', 'main']);
+      await git(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init']);
+      expect((await repoInfo(root, {})).base).toBe('main');
+      expect((await repoInfo(root, { PATCHHOUND_BASE: 'staging' })).base).toBe('staging');
+      await expect(repoInfo(root, { PATCHHOUND_BASE: 'staging; rm -rf ~' })).rejects.toThrow('PATCHHOUND_BASE is not a branch name');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

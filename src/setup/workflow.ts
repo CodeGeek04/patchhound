@@ -2,8 +2,14 @@
 export interface WorkflowOptions {
   /** The Action to run: `owner/repo@ref`. */
   action: string;
-  /** The repo's default branch: the first run starts when this file lands there. */
+  /** The branch fixes go to; the first run starts when this file lands there. */
   base: string;
+  /**
+   * The repo's default branch, where GitHub runs schedules from. When fixes go elsewhere (staging),
+   * every job checks out `base` (PATCHHOUND_BASE), and the schedule starts once this file reaches the
+   * default branch.
+   */
+  defaultBranch?: string;
   /** Use an Anthropic API key (secret ANTHROPIC_API_KEY) instead of a Claude token. */
   apiKey?: boolean;
   /** When scheduled runs start (cron, UTC). */
@@ -21,6 +27,10 @@ export const DEFAULT_SCHEDULE = '17 */4 * * *';
  */
 export function workflowFile(options: WorkflowOptions): string {
   const schedule = options.schedule ?? DEFAULT_SCHEDULE;
+  const elsewhere = options.defaultBranch !== undefined && options.defaultBranch !== options.base;
+  const quote = (branch: string) => (/^[\w./-]+$/.test(branch) ? branch : JSON.stringify(branch));
+  const env = elsewhere ? `\nenv:\n  PATCHHOUND_BASE: ${quote(options.base)}   # the branch fixes go to, and that every job checks out\n` : '';
+  const checkout = elsewhere ? '\n          ref: ${{ env.PATCHHOUND_BASE }}' : '';
   const claude = options.apiKey
     ? 'anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}'
     : 'claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}';
@@ -30,9 +40,9 @@ on:
     - cron: "${schedule}"${schedule === DEFAULT_SCHEDULE ? '   # every 4 hours' : ''}
   workflow_dispatch:          # "Run workflow" in the Actions tab starts one any time
   push:                       # and the first one starts when this file is merged
-    branches: [${/^[\w./-]+$/.test(options.base) ? options.base : JSON.stringify(options.base)}]
+    branches: [${quote(options.base)}]
     paths: [${WORKFLOW_PATH}]
-
+${env}
 concurrency: patchhound
 
 jobs:
@@ -45,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: false${checkout}
       - id: patchhound
         uses: ${options.action}
         with:
@@ -66,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false   # keeps the token out of .git/config, where installs and tests could read it
+          persist-credentials: false   # keeps the token out of .git/config, where installs and tests could read it${checkout}
       - id: patchhound
         uses: ${options.action}
         with:
@@ -84,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: false${checkout}
       - uses: ${options.action}
         with:
           mode: publish
