@@ -522,7 +522,12 @@ function failed(failure: Failure): string {
   return failure.applyError !== undefined ? 'the plan could not be applied' : `${failure.failing.map((c) => c.command).join(' and ')} failed`;
 }
 
-const DAY_MS = 24 * 60 * 60_000;
+/**
+ * How long a failed attempt on an older commit waits before it is tried again on a new one: under a
+ * day, so that the scan job, which sends the fix job again 20 hours after it last did (fix/signal.ts),
+ * finds this wait over, though the fix record is written up to half an hour after the scan.
+ */
+const DAY_MS = 18 * 60 * 60_000;
 
 /**
  * Why a run on `branch` would only repeat the last one, or null when it would not: the last run set

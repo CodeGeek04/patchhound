@@ -30,7 +30,7 @@ on:
     - cron: "${schedule}"${schedule === DEFAULT_SCHEDULE ? '   # every 4 hours' : ''}
   workflow_dispatch:          # "Run workflow" in the Actions tab starts one any time
   push:                       # and the first one starts when this file is merged
-    branches: [${options.base}]
+    branches: [${/^[\w./-]+$/.test(options.base) ? options.base : JSON.stringify(options.base)}]
     paths: [${WORKFLOW_PATH}]
 
 concurrency: patchhound
