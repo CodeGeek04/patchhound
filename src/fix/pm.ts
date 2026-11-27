@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -67,7 +68,9 @@ export function runTool(argv: readonly string[], options: { cwd: string; env?: N
       : undefined;
     child.on('error', (error) => {
       if (timer) clearTimeout(timer);
-      resolve({ code: 127, timedOut, output: `${output}${String(error)}`.slice(-MAX_OUTPUT) });
+      // Node reports a folder that does not exist as the program not existing (spawn git ENOENT).
+      const why = (error as NodeJS.ErrnoException).code === 'ENOENT' && !existsSync(options.cwd) ? `no such folder: ${options.cwd}` : String(error);
+      resolve({ code: 127, timedOut, output: `${output}${why}`.slice(-MAX_OUTPUT) });
     });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);

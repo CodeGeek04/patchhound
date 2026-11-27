@@ -1,6 +1,6 @@
 {
   "name": "patchhound",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Watches your npm dependencies for advisories, alerts on the ones your code exposes, and opens a pull request that fixes them.",
   "keywords": [
     "security",
