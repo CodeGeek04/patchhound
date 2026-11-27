@@ -41,7 +41,7 @@ export interface AssessOptions {
   fetch?: Fetch;
   retry?: RetryOptions;
   cache?: DiskCache;
-  /** Save decisions and the audit log under <dir>/.bulwark, and send messages unless the config's dry_run. False for `scan --dry-run`. */
+  /** Save decisions and the audit log under <dir>/.patchhound, and send messages unless the config's dry_run. False for `scan --dry-run`. */
   write: boolean;
   now?: Date;
   /** Names the project in the triage cache (default: `dir`). The fix step works in a temporary worktree of the same repo. */
@@ -107,7 +107,7 @@ export async function assess(options: AssessOptions): Promise<Assessment> {
   for (const f of findings) for (const name of mentioned.get(f.key)!) wanted.set(f.package, new Set([...(wanted.get(f.package) ?? []), name]));
 
   // The state first: a bad decisions file fails before any model is asked.
-  const statePath = join(dir, '.bulwark', 'decisions.json');
+  const statePath = join(dir, '.patchhound', 'decisions.json');
   const previous = await loadDecisions(statePath);
 
   const next = await usesNext(dir, result.workspaces);
@@ -259,7 +259,7 @@ export async function assess(options: AssessOptions): Promise<Assessment> {
   }
   if (options.write) {
     await saveDecisions(statePath, next_);
-    await appendAudit(join(dir, '.bulwark', 'audit.jsonl'), audit);
+    await appendAudit(join(dir, '.patchhound', 'audit.jsonl'), audit);
   }
   return {
     scan: scanId,

@@ -130,7 +130,7 @@ describe('triage', () => {
   });
 
   it('caches answers by the evidence, so a second run asks nothing until the evidence changes', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-triage-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-triage-'));
     dirs.push(dir);
     const cache = new DiskCache(dir);
     const jev = fakeJev({ a: jevAnswer(0.5) });
@@ -159,7 +159,7 @@ describe('triage', () => {
   });
 
   it('asks Claude again when the code around a use changes, and never shares an answer between projects', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-triage-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-triage-'));
     dirs.push(dir);
     const cache = new DiskCache(dir);
     const claude = fakeClaude('no');

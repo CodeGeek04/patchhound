@@ -21,7 +21,7 @@ describe('the handoff from the fix job to the publish job', () => {
 
   beforeEach(async () => {
     published.length = 0;
-    root = await mkdtemp(join(tmpdir(), 'bulwark-handoff-'));
+    root = await mkdtemp(join(tmpdir(), 'patchhound-handoff-'));
     const origin = join(root, 'origin.git');
     fixSide = join(root, 'fix');
     publishSide = join(root, 'publish');
@@ -45,7 +45,7 @@ describe('the handoff from the fix job to the publish job', () => {
   const handOff = async (kind: 'fixes' | 'malware') =>
     writeHandoff(fixSide, folder, { kind, base, head: await git(fixSide, ['rev-parse', 'HEAD']), title: 'Security fixes for 1 advisory', body: 'body', needsReview: true });
 
-  it('publishes bulwark\'s own commits on the declared base, to the branch its own config names', async () => {
+  it('publishes patchhound\'s own commits on the declared base, to the branch its own config names', async () => {
     await writeFile(join(fixSide, 'package.json'), '{"dependencies":{"lodash":"4.17.21"}}\n');
     await commitAll(fixSide, 'fix(deps): security updates for 1 advisory');
     await handOff('fixes');
@@ -53,7 +53,7 @@ describe('the handoff from the fix job to the publish job', () => {
     expect(JSON.parse(await readFile(join(folder, 'handoff.json'), 'utf8')).runs).toHaveLength(1);
     const results = await publishHandoff(publishSide, folder, DEFAULT_CONFIG, { publish, repo });
     expect(results).toEqual([{ kind: 'fixes', pr: { number: 1, url: 'https://github.com/o/r/pull/1', created: true } }]);
-    expect(published).toEqual([{ branch: 'bulwark/fixes', labels: ['security', 'needs-review'], title: 'Security fixes for 1 advisory', head }]);
+    expect(published).toEqual([{ branch: 'patchhound/fixes', labels: ['security', 'needs-review'], title: 'Security fixes for 1 advisory', head }]);
   });
 
   it('refuses a branch from its config that names the base, the branch PRs go to', async () => {
@@ -69,7 +69,7 @@ describe('the handoff from the fix job to the publish job', () => {
     await writeFile(join(fixSide, 'index.js'), 'module.exports = 2;\n');
     await git(fixSide, ['-c', 'user.email=dev@example.com', '-c', 'user.name=dev', 'commit', '-qam', 'not ours']);
     await handOff('fixes');
-    expect((await publishHandoff(publishSide, folder, DEFAULT_CONFIG, { publish, repo }))[0]!.refused).toBe('it has a commit bulwark did not make');
+    expect((await publishHandoff(publishSide, folder, DEFAULT_CONFIG, { publish, repo }))[0]!.refused).toBe('it has a commit patchhound did not make');
 
     await git(fixSide, ['reset', '-q', '--hard', base]);
     await mkdir(join(fixSide, '.github'));
@@ -96,7 +96,7 @@ describe('the handoff from the fix job to the publish job', () => {
       await writeFile(join(fixSide, 'package.json'), '{"dependencies":{"lodash":"4.17.21"}}\n');
       await commitAll(fixSide, 'fix(deps): security updates for 1 advisory', commitAuthor('actor'));
       await handOff('fixes');
-      expect((await publishHandoff(publishSide, folder, DEFAULT_CONFIG, { publish, repo }))[0]!.refused).toBe('it has a commit bulwark did not make');
+      expect((await publishHandoff(publishSide, folder, DEFAULT_CONFIG, { publish, repo }))[0]!.refused).toBe('it has a commit patchhound did not make');
       expect((await publishHandoff(publishSide, folder, actor, { publish, repo }))[0]!.refused).toBeUndefined();
     } finally {
       for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name];

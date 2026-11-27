@@ -27,7 +27,7 @@ let dir: string;
 let source: SourceIndex;
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'bulwark-evidence-'));
+  dir = await mkdtemp(join(tmpdir(), 'patchhound-evidence-'));
   for (const [path, text] of Object.entries(FILES)) {
     await mkdir(dirname(join(dir, path)), { recursive: true });
     await writeFile(join(dir, path), text);

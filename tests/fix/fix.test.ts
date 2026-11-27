@@ -44,7 +44,7 @@ describe('the PR', () => {
     const c = content();
     expect(prTitle(c)).toBe('Security fixes for 1 advisory');
     const body = prBody(c);
-    expect(body).toContain('Bulwark fixes 1 finding in demo-app, and every check that passed before still passes.');
+    expect(body).toContain('Patchhound fixes 1 finding in demo-app, and every check that passed before still passes.');
     expect(body).toContain('| [GHSA-35jh-r3h4-6jhm](https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm) | HIGH | lodash@4.17.20 | yes | Command Injection in lodash |');
     expect(body).toContain('renders request text \\| with _.template');
     expect(body).toContain('- package.json: lodash -> 4.17.21');
@@ -78,7 +78,7 @@ describe('the PR', () => {
     });
     expect(prTitle(c)).toBe('Remove a malicious package');
     const body = prBody(c);
-    expect(body).toContain('Bulwark takes a malicious package (lodash@4.17.20) out of demo-app. Merge it before anything installs this project again.');
+    expect(body).toContain('Patchhound takes a malicious package (lodash@4.17.20) out of demo-app. Merge it before anything installs this project again.');
     expect(body).toContain('Checks were not run before the change: installing or building with a malicious package would run it.');
     expect(body).toContain('| `npm run test` | pass |');
   });
@@ -111,7 +111,7 @@ describe('the PR', () => {
 describe('fixRepo', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'bulwark-fixrepo-'));
+    dir = await mkdtemp(join(tmpdir(), 'patchhound-fixrepo-'));
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'empty-app', version: '1.0.0' }, null, 2));
     await writeFile(join(dir, 'package-lock.json'), JSON.stringify({ name: 'empty-app', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'empty-app', version: '1.0.0' } } }, null, 2));
     await git(dir, ['init', '-q', '-b', 'main']);
@@ -132,8 +132,8 @@ describe('fixRepo', () => {
   });
 
   it('leaves its own state folder out of the dirty check, the commits and the clean-up', async () => {
-    await mkdir(join(dir, '.bulwark'));
-    await writeFile(join(dir, '.bulwark', 'state.json'), '{}');
+    await mkdir(join(dir, '.patchhound'));
+    await writeFile(join(dir, '.patchhound', 'state.json'), '{}');
     expect(await isDirty(dir)).toBe(false);
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'empty-app', version: '1.0.1' }));
     await writeFile(join(dir, 'leftover.log'), 'x');
@@ -141,11 +141,11 @@ describe('fixRepo', () => {
     expect((await git(dir, ['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual(['leftover.log', 'package.json']);
     await writeFile(join(dir, 'agent-scratch.txt'), 'x');
     await cleanUntracked(dir);
-    expect(await git(dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('?? .bulwark/state.json');
+    expect(await git(dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('?? .patchhound/state.json');
   });
 
   it('works in place only on the branch PRs go to', async () => {
-    const remote = await mkdtemp(join(tmpdir(), 'bulwark-remote-'));
+    const remote = await mkdtemp(join(tmpdir(), 'patchhound-remote-'));
     try {
       await git(remote, ['init', '-q', '--bare']);
       await git(dir, ['remote', 'add', 'origin', remote]);
@@ -214,43 +214,43 @@ describe('actionsFor', () => {
 describe('coveringPullRequest', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'bulwark-covered-'));
-    await mkdir(join(dir, '.bulwark'));
+    dir = await mkdtemp(join(tmpdir(), 'patchhound-covered-'));
+    await mkdir(join(dir, '.patchhound'));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
   });
   const record = (pr: string | null, fixed: string[], remaining: string[], base = 'c1') =>
-    JSON.stringify({ type: 'fix', at: '2026-11-22T10:00:00.000Z', project: 'app', kind: 'fixes', branch: 'bulwark/fixes', base, pr, fixed, remaining, checks: [], agentCostUsd: null });
-  const path = () => join(dir, '.bulwark', 'audit.jsonl');
+    JSON.stringify({ type: 'fix', at: '2026-11-22T10:00:00.000Z', project: 'app', kind: 'fixes', branch: 'patchhound/fixes', base, pr, fixed, remaining, checks: [], agentCostUsd: null });
+  const path = () => join(dir, '.patchhound', 'audit.jsonl');
 
   it('names the open PR whose last run set out to fix exactly these findings, and nothing otherwise', async () => {
     await writeFile(path(), `${record('https://github.com/o/r/pull/1', ['a'], [])}\n${record('https://github.com/o/r/pull/2', ['a'], ['b'])}\n`);
     const open = async () => 'OPEN';
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), open, 'c2')).toBe('the open PR https://github.com/o/r/pull/2 already covers these 2 findings (run with --force to redo it)');
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), open, 'c2')).toBe('the open PR https://github.com/o/r/pull/2 already covers these 2 findings (run with --force to redo it)');
     // A new finding, a closed PR, another branch or no record: run again.
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b', 'c']), open, 'c2')).toBeNull();
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), async () => 'MERGED', 'c2')).toBeNull();
-    expect(await coveringPullRequest(path(), 'bulwark/fixes-malware', new Set(['a', 'b']), open, 'c2')).toBeNull();
-    expect(await coveringPullRequest(join(dir, 'missing.jsonl'), 'bulwark/fixes', new Set(['a']), open, 'c2')).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b', 'c']), open, 'c2')).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), async () => 'MERGED', 'c2')).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes-malware', new Set(['a', 'b']), open, 'c2')).toBeNull();
+    expect(await coveringPullRequest(join(dir, 'missing.jsonl'), 'patchhound/fixes', new Set(['a']), open, 'c2')).toBeNull();
   });
 
   it('finds the PR a publish job opened by its branch, when the work was handed off', async () => {
-    await writeFile(path(), `${JSON.stringify({ type: 'fix', at: '2026-11-22T10:00:00.000Z', project: 'app', kind: 'fixes', branch: 'bulwark/fixes', base: 'c1', pr: null, committed: true, fixed: ['a'], remaining: [], checks: [], agentCostUsd: null })}\n`);
+    await writeFile(path(), `${JSON.stringify({ type: 'fix', at: '2026-11-22T10:00:00.000Z', project: 'app', kind: 'fixes', branch: 'patchhound/fixes', base: 'c1', pr: null, committed: true, fixed: ['a'], remaining: [], checks: [], agentCostUsd: null })}\n`);
     const open = async (url: string) => (url === 'https://github.com/o/r/pull/7' ? 'OPEN' : null);
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a']), open, 'c2', Date.now(), async () => 'https://github.com/o/r/pull/7')).toBe(
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a']), open, 'c2', Date.now(), async () => 'https://github.com/o/r/pull/7')).toBe(
       'the open PR https://github.com/o/r/pull/7 already covers this finding (run with --force to redo it)',
     );
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a']), open, 'c2', Date.now(), async () => null)).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a']), open, 'c2', Date.now(), async () => null)).toBeNull();
   });
 
   it('reads the fix log, and the fix records an older cache kept in the audit log', async () => {
     await writeFile(path(), `${record('https://github.com/o/r/pull/1', ['a'], [])}\n`);
     // The newer run, in the fix log, is the one that counts.
-    await writeFile(join(dir, '.bulwark', FIX_LOG), `${record('https://github.com/o/r/pull/2', ['a'], ['b']).replace('2026-11-22T10', '2026-11-23T10')}\n`);
+    await writeFile(join(dir, '.patchhound', FIX_LOG), `${record('https://github.com/o/r/pull/2', ['a'], ['b']).replace('2026-11-22T10', '2026-11-23T10')}\n`);
     const open = async () => 'OPEN';
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), open, 'c2')).toBe('the open PR https://github.com/o/r/pull/2 already covers these 2 findings (run with --force to redo it)');
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a']), open, 'c2')).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), open, 'c2')).toBe('the open PR https://github.com/o/r/pull/2 already covers these 2 findings (run with --force to redo it)');
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a']), open, 'c2')).toBeNull();
   });
 
   it('skips the same attempt on the same commit when it kept nothing, and tries again on a new commit a day later', async () => {
@@ -259,10 +259,10 @@ describe('coveringPullRequest', () => {
       throw new Error('no PR to ask about');
     };
     const at = Date.parse('2026-11-22T10:00:00.000Z');
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), never, 'c1', at + 3 * 86_400_000)).toMatch(/^the last run tried these 2 findings on this same commit/);
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), never, 'c1', at + 3 * 86_400_000)).toMatch(/^the last run tried these 2 findings on this same commit/);
     // On a new commit, at most once a day.
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), never, 'c2', at + 3_600_000)).toMatch(/less than a day ago/);
-    expect(await coveringPullRequest(path(), 'bulwark/fixes', new Set(['a', 'b']), never, 'c2', at + 86_400_001)).toBeNull();
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), never, 'c2', at + 3_600_000)).toMatch(/less than a day ago/);
+    expect(await coveringPullRequest(path(), 'patchhound/fixes', new Set(['a', 'b']), never, 'c2', at + 86_400_001)).toBeNull();
   });
 });
 
@@ -304,7 +304,7 @@ describe('findBreaking', () => {
 describe('git safety', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'bulwark-git-'));
+    dir = await mkdtemp(join(tmpdir(), 'patchhound-git-'));
     await git(dir, ['init', '-q', '-b', 'main']);
     await writeFile(join(dir, 'a.txt'), 'a');
     await git(dir, ['add', '-A']);
@@ -330,9 +330,9 @@ describe('git safety', () => {
     await writeFile(join(dir, 'a.txt'), 'changed');
     await mkdir(join(dir, '.github'));
     await writeFile(join(dir, '.github', 'ci.yml'), 'x');
-    await mkdir(join(dir, '.bulwark'));
-    await writeFile(join(dir, '.bulwark', 'audit.jsonl'), '{}');
-    // bulwark's own state is never a change (so never cleaned away with the agent's files).
+    await mkdir(join(dir, '.patchhound'));
+    await writeFile(join(dir, '.patchhound', 'audit.jsonl'), '{}');
+    // patchhound's own state is never a change (so never cleaned away with the agent's files).
     expect(await changedSince(dir, head)).toEqual({ tracked: ['a.txt'], untracked: ['.github/ci.yml'] });
   });
 
@@ -343,18 +343,18 @@ describe('git safety', () => {
       asked.push(path);
       return commits;
     };
-    expect(await othersOnBranch(repo, 'bulwark/fixes', 'main', api(null))).toBe(false);
-    expect(asked).toEqual(['repos/o/r/compare/main...bulwark%2Ffixes']);
-    expect(await othersOnBranch(repo, 'bulwark/fixes', 'main', api([SELF.email, SELF.email]))).toBe(false);
-    expect(await othersOnBranch(repo, 'bulwark/fixes', 'main', api([SELF.email, 'someone@example.com']))).toBe(true);
+    expect(await othersOnBranch(repo, 'patchhound/fixes', 'main', api(null))).toBe(false);
+    expect(asked).toEqual(['repos/o/r/compare/main...patchhound%2Ffixes']);
+    expect(await othersOnBranch(repo, 'patchhound/fixes', 'main', api([SELF.email, SELF.email]))).toBe(false);
+    expect(await othersOnBranch(repo, 'patchhound/fixes', 'main', api([SELF.email, 'someone@example.com']))).toBe(true);
   });
 
   it('reads an open PR\'s commits from the identity it used before as its own', async () => {
     const repo = { owner: 'o', name: 'r' };
     const api = (committers: string[]) => async () => committers;
-    expect(await othersOnBranch(repo, 'bulwark/fixes', 'main', api(['security-agent@users.noreply.github.com', SELF.email]))).toBe(false);
+    expect(await othersOnBranch(repo, 'patchhound/fixes', 'main', api(['security-agent@users.noreply.github.com', SELF.email]))).toBe(false);
     // A person's edit in GitHub's web editor has GitHub as its committer.
-    expect(await othersOnBranch(repo, 'bulwark/fixes', 'main', api([SELF.email, 'noreply@github.com']))).toBe(true);
+    expect(await othersOnBranch(repo, 'patchhound/fixes', 'main', api([SELF.email, 'noreply@github.com']))).toBe(true);
   });
 
   it('commits as github-actions[bot], or with the person who started the run as the author', async () => {

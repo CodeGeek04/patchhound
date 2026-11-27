@@ -18,7 +18,7 @@ const MAX_OUTPUT = 64 * 1024;
  * failing command: `code` says how it ended. An argv that cannot start (no such program) gives code 127.
  */
 /**
- * Credentials bulwark itself uses, and the ones GitHub Actions hands every step. Installs,
+ * Credentials patchhound itself uses, and the ones GitHub Actions hands every step. Installs,
  * install scripts, checks and the coding agent's tools run without them: a dependency or a prompt
  * injection must not be able to read them.
  */

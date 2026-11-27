@@ -94,7 +94,7 @@ describe('observe', () => {
 });
 
 describe('loadState and saveState', () => {
-  const tempDir = () => mkdtemp(join(tmpdir(), 'bulwark-'));
+  const tempDir = () => mkdtemp(join(tmpdir(), 'patchhound-'));
 
   it('starts empty when there is no file, and round-trips', async () => {
     const path = join(await tempDir(), 'nested', 'state.json');
@@ -119,7 +119,7 @@ describe('loadState and saveState', () => {
   it('rejects a state file of another version, naming the file', async () => {
     const path = join(await tempDir(), 'state.json');
     await writeFile(path, JSON.stringify({ version: 1, findings: { a: { firstSeen: 'x', modified: 'm' } } }));
-    await expect(loadState(path)).rejects.toThrow(`State file ${path} has version 1; this bulwark reads version 2`);
+    await expect(loadState(path)).rejects.toThrow(`State file ${path} has version 1; this patchhound reads version 2`);
   });
 
   it('rejects a state file it cannot read, naming the file and the problem', async () => {

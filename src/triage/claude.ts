@@ -242,7 +242,7 @@ export type Runner = (command: string, args: readonly string[], input: string, t
 
 export const runCommand: Runner = async (command, args, input, timeoutMs) => {
   // A fresh private folder: the shared temp folder could hold someone else's .claude/settings.json and its hooks.
-  const cwd = await mkdtemp(join(tmpdir(), 'bulwark-claude-'));
+  const cwd = await mkdtemp(join(tmpdir(), 'patchhound-claude-'));
   try {
     return await runIn(cwd, command, args, input, timeoutMs);
   } finally {

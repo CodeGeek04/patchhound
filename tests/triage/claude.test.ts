@@ -122,7 +122,7 @@ describe('runCommand', () => {
 
   it('runs in a fresh private folder', async () => {
     const out = await runCommand(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], '', 10_000);
-    expect(out).toMatch(/bulwark-claude-/);
+    expect(out).toMatch(/patchhound-claude-/);
   });
 });
 

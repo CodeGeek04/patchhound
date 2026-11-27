@@ -78,7 +78,7 @@ function byAdvisory(items: readonly MessageItem[]): MessageItem[][] {
 export function alertMessage(project: string, items: readonly MessageItem[]): Message {
   const ordered = sorted(items);
   const groups = byAdvisory(ordered);
-  const title = `Bulwark: ${groups.length} ${groups.length === 1 ? 'advisory needs' : 'advisories need'} attention in ${project}`;
+  const title = `Patchhound: ${groups.length} ${groups.length === 1 ? 'advisory needs' : 'advisories need'} attention in ${project}`;
   return {
     kind: 'alert',
     project,
@@ -95,14 +95,14 @@ const DIGEST_ORDER: Partial<Record<Rule, number>> = { 'not-reachable': 0, 'build
 /** The weekly digest: counts by rule, then the findings below the bar, judged ones and the most severe first. */
 export function digestMessage(project: string, items: readonly MessageItem[]): Message {
   const ordered = sorted(items).sort((a, b) => (DIGEST_ORDER[a.rule] ?? 9) - (DIGEST_ORDER[b.rule] ?? 9));
-  const title = `Bulwark weekly digest for ${project}: ${ordered.length} ${ordered.length === 1 ? 'finding' : 'findings'} below the bar for an alert`;
+  const title = `Patchhound weekly digest for ${project}: ${ordered.length} ${ordered.length === 1 ? 'finding' : 'findings'} below the bar for an alert`;
   const counts = new Map<Rule, number>();
   for (const item of ordered) counts.set(item.rule, (counts.get(item.rule) ?? 0) + 1);
   const summary = [...counts].map(([rule, n]) => `${n} ${RULE_TEXT[rule].split(':')[0]}`).join('; ');
   const groups = byAdvisory(ordered);
   const shown = groups.slice(0, DIGEST_LINES);
   const more = groups.length - shown.length;
-  const tail = more > 0 ? [`and ${more} more ${more === 1 ? 'advisory' : 'advisories'}: run bulwark scan --details for all of them`] : [];
+  const tail = more > 0 ? [`and ${more} more ${more === 1 ? 'advisory' : 'advisories'}: run patchhound scan --details for all of them`] : [];
   return {
     kind: 'digest',
     project,

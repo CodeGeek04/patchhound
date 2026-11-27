@@ -25,7 +25,7 @@ export interface PrContent {
   noBaseline?: string;
 }
 
-/** The user's rule for every text bulwark writes: no em dashes, even in advisory titles it quotes. */
+/** The user's rule for every text patchhound writes: no em dashes, even in advisory titles it quotes. */
 export function noDashes(text: string): string {
   return text.replace(/\s*\u2014\s*/g, ', ');
 }
@@ -53,10 +53,10 @@ export function prBody(c: PrContent): string {
     `| [${f.evidence.advisory.id}](https://osv.dev/vulnerability/${f.evidence.advisory.id}) | ${f.evidence.advisory.severity}${f.evidence.advisory.kev ? ', KEV' : ''} | ${cell(`${f.evidence.package}@${f.evidence.version}`)} | ${f.triage.reachable} | ${cell(f.evidence.advisory.summary)} |`;
   const lines = [
     c.kind === 'malware'
-      ? `Bulwark takes ${malicious(fixed)} out of ${c.project}. Merge it before anything installs this project again.`
+      ? `Patchhound takes ${malicious(fixed)} out of ${c.project}. Merge it before anything installs this project again.`
       : c.baseline.length > 0 && !c.baseline.some((b) => b.passed)
-        ? `Bulwark fixes ${fixed.length} ${fixed.length === 1 ? 'finding' : 'findings'} in ${c.project}. None of the project's checks passed before the change (below), so only a new scan confirms these fixes: review them with care.`
-        : `Bulwark fixes ${fixed.length} ${fixed.length === 1 ? 'finding' : 'findings'} in ${c.project}, and every check that passed before still passes.`,
+        ? `Patchhound fixes ${fixed.length} ${fixed.length === 1 ? 'finding' : 'findings'} in ${c.project}. None of the project's checks passed before the change (below), so only a new scan confirms these fixes: review them with care.`
+        : `Patchhound fixes ${fixed.length} ${fixed.length === 1 ? 'finding' : 'findings'} in ${c.project}, and every check that passed before still passes.`,
     '',
   ];
   if (fixed.length > 0) {
@@ -107,7 +107,7 @@ export function prBody(c: PrContent): string {
     lines.push('', '### Advisories that come with the new versions', '', 'A newer release can carry advisories of its own, with no fixed version yet:', '');
     for (const a of c.appeared!) lines.push(`- [${a.advisory}](https://osv.dev/vulnerability/${a.advisory}) ${a.severity} in ${cell(a.package)}: ${cell(a.summary)}`);
   }
-  lines.push('', '---', 'Opened by Bulwark. `bulwark explain <advisory>` shows how each finding was judged.');
+  lines.push('', '---', 'Opened by Patchhound. `patchhound explain <advisory>` shows how each finding was judged.');
   return noDashes(lines.join('\n'));
 }
 

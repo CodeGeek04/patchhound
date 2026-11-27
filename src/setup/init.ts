@@ -11,13 +11,13 @@ import { noDashes } from '../fix/pr-body.js';
 import { DEFAULT_SCHEDULE, WORKFLOW_PATH, workflowFile } from './workflow.js';
 
 /**
- * `bulwark init`: sets a repo up for the GitHub Action in one go. It writes the workflow (and a
- * .bulwark.yml when a setting differs from the default), stores the Claude token as a repo secret
+ * `patchhound init`: sets a repo up for the GitHub Action in one go. It writes the workflow (and a
+ * .patchhound.yml when a setting differs from the default), stores the Claude token as a repo secret
  * through gh's own hidden prompt, lets Actions open pull requests, and opens a setup PR. The person's
  * checkout is never touched: the PR is made from a worktree of the default branch.
  */
 
-export const SETUP_BRANCH = 'bulwark/setup';
+export const SETUP_BRANCH = 'patchhound/setup';
 
 /** How init reaches GitHub and the person; the CLI's are real, tests pass fakes. */
 export interface InitIO {
@@ -64,7 +64,7 @@ const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml',
 export async function init(options: InitOptions, io: InitIO = realIO()): Promise<InitResult> {
   const info = await repoInfo(options.dir);
   const repo = options.repo ?? info.github;
-  if (!repo) throw new Error('origin is not a GitHub repository; Bulwark runs as a GitHub Action');
+  if (!repo) throw new Error('origin is not a GitHub repository; Patchhound runs as a GitHub Action');
   const slug = `${repo.owner}/${repo.name}`;
 
   const about = await io.gh(['api', `repos/${slug}`, '--jq', '.default_branch']);
@@ -84,7 +84,7 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
     return false;
   };
 
-  if (!(await present(LOCKFILES))) throw new Error(`Bulwark reads ${LOCKFILES.join(', ')} at the repo root, and ${slug} has none on ${pr ? base : 'this checkout'}`);
+  if (!(await present(LOCKFILES))) throw new Error(`Patchhound reads ${LOCKFILES.join(', ')} at the repo root, and ${slug} has none on ${pr ? base : 'this checkout'}`);
   // Before anything changes on GitHub.
   if (!options.force && (await present([WORKFLOW_PATH]))) throw new Error(`${slug} already has ${WORKFLOW_PATH}: --force replaces it`);
 
@@ -108,7 +108,7 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
   return { repo: slug, pr: url, files: [...files.keys()], secret, pullRequests };
 }
 
-const VERCEL_CONFIG = `# Bulwark's settings for this repo (every setting: bulwark init --config-only).
+const VERCEL_CONFIG = `# Patchhound's settings for this repo (every setting: patchhound init --config-only).
 fix:
   # Vercel builds a private repo's previews only for its team members' commits, so the fix commits
   # are authored by the person who started the run (github-actions[bot] stays the committer).
@@ -154,7 +154,7 @@ async function openSetupPr(top: string, commit: string, slug: string, base: stri
   try {
     for (const [path, text] of files) await writeFiles(worktree, path, text);
     await git(worktree, ['add', '--', ...files.keys()]);
-    await git(worktree, ['commit', '--quiet', '--no-verify', '-m', 'Add Bulwark']);
+    await git(worktree, ['commit', '--quiet', '--no-verify', '-m', 'Add Patchhound']);
     try {
       await ghGit(worktree, ['push', '--quiet', 'origin', `HEAD:refs/heads/${SETUP_BRANCH}`]);
     } catch {
@@ -163,7 +163,7 @@ async function openSetupPr(top: string, commit: string, slug: string, base: stri
   } finally {
     await removeWorktree(top, worktree);
   }
-  const created = await io.gh(['pr', 'create', '--repo', slug, '--base', base, '--head', SETUP_BRANCH, '--title', 'Add Bulwark', '--body', setupBody(files, schedule)]);
+  const created = await io.gh(['pr', 'create', '--repo', slug, '--base', base, '--head', SETUP_BRANCH, '--title', 'Add Patchhound', '--body', setupBody(files, schedule)]);
   if (created.code !== 0) throw new Error(`the branch ${SETUP_BRANCH} is pushed, but the PR could not be opened: ${lastLine(created.output)}`);
   return lastLine(created.output);
 }
@@ -171,7 +171,7 @@ async function openSetupPr(top: string, commit: string, slug: string, base: stri
 function setupBody(files: Map<string, string>, schedule: string): string {
   const when = schedule === DEFAULT_SCHEDULE ? 'Every 4 hours' : `On the schedule \`${schedule}\` (UTC)`;
   const lines = [
-    `Adds Bulwark. ${when} it checks the dependencies for advisories, alerts on the ones the code exposes, and keeps one pull request open that fixes what it can.`,
+    `Adds Patchhound. ${when} it checks the dependencies for advisories, alerts on the ones the code exposes, and keeps one pull request open that fixes what it can.`,
     '',
     `- \`${WORKFLOW_PATH}\`: the scan, fix and publish jobs. The job that runs this project's code has no write access.`,
   ];

@@ -199,10 +199,10 @@ export function recordsFor(records: readonly AuditRecord[], id: string): AuditRe
   );
 }
 
-/** The decision trail for one advisory, for `bulwark explain`. */
+/** The decision trail for one advisory, for `patchhound explain`. */
 export function formatExplain(records: readonly AuditRecord[], id: string): string {
   const trail = recordsFor(records, id);
-  if (trail.length === 0) return `${id}: no decision about it in the audit log. Run bulwark check ${id} to look it up now.`;
+  if (trail.length === 0) return `${id}: no decision about it in the audit log. Run patchhound check ${id} to look it up now.`;
   const first = trail.find((r): r is DecisionRecord => r.type === 'decision')!;
   const lines = [`${first.advisory}${first.aliases.length > 0 ? ` (${first.aliases.join(', ')})` : ''} in ${first.project}`];
   const byKey = new Map<string, AuditRecord[]>();

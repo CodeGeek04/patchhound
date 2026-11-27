@@ -66,7 +66,7 @@ export async function loadState(path: string): Promise<SeenState> {
     throw new Error(`State file ${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (isRecord(data) && data.version !== 2) {
-    throw new Error(`State file ${path} has version ${JSON.stringify(data.version)}; this bulwark reads version 2`);
+    throw new Error(`State file ${path} has version ${JSON.stringify(data.version)}; this patchhound reads version 2`);
   }
   const problem = stateProblem(data);
   if (problem) throw new Error(`State file ${path} is malformed: ${problem}`);

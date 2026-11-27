@@ -26,7 +26,7 @@ describe('loadGraph', () => {
 
   /** A project with a current pnpm-lock.yaml and a stale package-lock.json, as one real app had. */
   async function twoLockfiles(packageManager?: string): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-'));
     await copyFile(join(fixtureDir('pnpm-app'), 'pnpm-lock.yaml'), join(dir, 'pnpm-lock.yaml'));
     await copyFile(join(fixtureDir('npm-app'), 'package-lock.json'), join(dir, 'package-lock.json'));
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'two', ...(packageManager ? { packageManager } : {}) }));
@@ -59,7 +59,7 @@ describe('loadGraph', () => {
   });
 
   it('finds the workspaces that package.json globs name', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-'));
     const write = async (path: string, name: string) => {
       await mkdir(join(dir, path), { recursive: true });
       await writeFile(join(dir, path, 'package.json'), JSON.stringify({ name }));
@@ -81,20 +81,20 @@ describe('loadGraph', () => {
   });
 
   it('names the lockfile it could not parse', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-'));
     await writeFile(join(dir, 'package-lock.json'), '{ "lockfileVersion": 3,');
     await expect(loadGraph(dir)).rejects.toThrow(`Could not read ${join(dir, 'package-lock.json')}: `);
   });
 
   it("reads yarn 4's catalogs from .yarnrc.yml", async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'bulwark-'));
+    const dir = await mkdtemp(join(tmpdir(), 'patchhound-'));
     await writeFile(join(dir, '.yarnrc.yml'), 'catalog:\n  react: ^18.3.1\ncatalogs:\n  old:\n    react: 1.0\n');
     expect(await readYarnCatalogs(dir)).toEqual({ default: { react: '^18.3.1' }, named: { old: { react: '1.0' } } });
-    expect(await readYarnCatalogs(await mkdtemp(join(tmpdir(), 'bulwark-')))).toEqual({});
+    expect(await readYarnCatalogs(await mkdtemp(join(tmpdir(), 'patchhound-')))).toEqual({});
   });
 
   it('says when there is no lockfile', async () => {
-    const empty = await mkdtemp(join(tmpdir(), 'bulwark-'));
+    const empty = await mkdtemp(join(tmpdir(), 'patchhound-'));
     await expect(loadGraph(empty)).rejects.toThrow(/No lockfile/);
   });
 });

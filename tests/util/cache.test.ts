@@ -11,7 +11,7 @@ import { OsvClient } from '../../src/watch/osv.js';
 import { fakeFetch } from '../helpers/fake-fetch.js';
 import { doc } from '../helpers/registry-routes.js';
 
-const tempCache = async () => new DiskCache(await mkdtemp(join(tmpdir(), 'bulwark-cache-')));
+const tempCache = async () => new DiskCache(await mkdtemp(join(tmpdir(), 'patchhound-cache-')));
 
 /** A route that answers 304 when asked with `etag`, else the body with that ETag, and counts both. */
 function etagRoute(etag: string, body: unknown) {
@@ -40,11 +40,11 @@ describe('DiskCache', () => {
     expect(await cache.get('npm/registry.npmjs.org/@sentry/nextjs')).toBe(1);
   });
 
-  it('defaults to $XDG_CACHE_HOME/bulwark', () => {
+  it('defaults to $XDG_CACHE_HOME/patchhound', () => {
     const before = process.env.XDG_CACHE_HOME;
     process.env.XDG_CACHE_HOME = '/x/cache';
     try {
-      expect(defaultCacheDir()).toBe('/x/cache/bulwark');
+      expect(defaultCacheDir()).toBe('/x/cache/patchhound');
     } finally {
       if (before === undefined) delete process.env.XDG_CACHE_HOME;
       else process.env.XDG_CACHE_HOME = before;

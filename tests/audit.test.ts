@@ -9,8 +9,8 @@ import { evidence } from './helpers/findings.js';
 describe('the audit log and the fix log', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'bulwark-audit-'));
-    await mkdir(join(dir, '.bulwark'));
+    dir = await mkdtemp(join(tmpdir(), 'patchhound-audit-'));
+    await mkdir(join(dir, '.patchhound'));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -26,9 +26,9 @@ describe('the audit log and the fix log', () => {
     decision: { outcome: 'notify', rule: 'reachable', wouldDo: [{ tier: 'fix-pr', enabled: true }] },
     dryRun: false,
   });
-  const fix = (at: string, pr: string): FixRecord => ({ type: 'fix', at, project: 'app', kind: 'fixes', branch: 'bulwark/fixes', base: 'c1', pr, fixed: [KEY], remaining: [], checks: [], agentCostUsd: null });
+  const fix = (at: string, pr: string): FixRecord => ({ type: 'fix', at, project: 'app', kind: 'fixes', branch: 'patchhound/fixes', base: 'c1', pr, fixed: [KEY], remaining: [], checks: [], agentCostUsd: null });
   const lines = (records: readonly AuditRecord[]) => records.map((r) => `${JSON.stringify(r)}\n`).join('');
-  const state = () => join(dir, '.bulwark');
+  const state = () => join(dir, '.patchhound');
 
   it('reads both, oldest first, so explain shows the fix PR the fix job logged on its own', async () => {
     // A cache from before the fix log kept its fix records in the audit log; they still count.

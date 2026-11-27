@@ -18,7 +18,7 @@ import { lodashInjection, osvRoutes } from './helpers/osv-routes.js';
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'bulwark-assess-'));
+  dir = await mkdtemp(join(tmpdir(), 'patchhound-assess-'));
   await writeFile(join(dir, 'package.json'), JSON.stringify({ dependencies: { lodash: '4.17.20', minimist: '1.0.0' } }));
   await mkdir(join(dir, 'src'));
   await writeFile(join(dir, 'src', 'server.ts'), "import _ from 'lodash';\nexport const render = (s: string) => _.template(s)();\n");
@@ -89,7 +89,7 @@ describe('assess', () => {
       ['alert', ['lodash']],
       ['digest', ['minimist']],
     ]);
-    const audit = await readAudit(join(dir, '.bulwark', 'audit.jsonl'));
+    const audit = await readAudit(join(dir, '.patchhound', 'audit.jsonl'));
     expect(audit.map((r) => (r.type === 'decision' ? `decision ${r.package} ${r.decision.rule}` : r.type === 'message' ? `message ${r.kind} ${r.sent}` : r.type))).toEqual([
       'decision lodash reachable',
       'decision minimist dev-only',
@@ -108,7 +108,7 @@ describe('assess', () => {
     const third = await run({ channels: [slack], result: scanResult([worse, minimist]), now: new Date('2026-11-23T10:00:00Z') });
     expect(third.findings[0]).toMatchObject({ alert: 'worse', decision: { rule: 'kev' } });
     expect(slack.sent.map((m) => m.kind)).toEqual(['alert', 'digest', 'alert']);
-    const audit = await readAudit(join(dir, '.bulwark', 'audit.jsonl'));
+    const audit = await readAudit(join(dir, '.patchhound', 'audit.jsonl'));
     expect(audit.filter((r): r is Extract<AuditRecord, { type: 'decision' }> => r.type === 'decision').map((r) => r.decision.rule)).toEqual(['reachable', 'dev-only', 'kev']);
     expect(formatExplain(audit, 'cve-2021-23337')).toContain('notify (kev): KEV-listed');
   });
@@ -128,9 +128,9 @@ describe('assess', () => {
       ['terminal', false],
       ['terminal', false],
     ]);
-    await rm(join(dir, '.bulwark'), { recursive: true, force: true });
+    await rm(join(dir, '.patchhound'), { recursive: true, force: true });
     await run({ channels: [slack], write: false });
-    await expect(readFile(join(dir, '.bulwark', 'decisions.json'), 'utf8')).rejects.toThrow(/ENOENT/);
+    await expect(readFile(join(dir, '.patchhound', 'decisions.json'), 'utf8')).rejects.toThrow(/ENOENT/);
   });
 
   it('an alert only printed in dry run is still sent once a channel is set up', async () => {

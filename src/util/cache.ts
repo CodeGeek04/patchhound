@@ -36,8 +36,8 @@ export class DiskCache {
   }
 }
 
-/** `$XDG_CACHE_HOME/bulwark`, else `~/.cache/bulwark`. */
+/** `$XDG_CACHE_HOME/patchhound`, else `~/.cache/patchhound`. */
 export function defaultCacheDir(): string {
   const base = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
-  return join(base, 'bulwark');
+  return join(base, 'patchhound');
 }
