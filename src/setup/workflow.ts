@@ -40,11 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      fix: \${{ steps.patchhound.outputs.fix }}   # false: nothing new to fix, so the next jobs are skipped
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: ${options.action}
+      - id: patchhound
+        uses: ${options.action}
         with:
           mode: scan
           ${claude}
@@ -53,15 +56,19 @@ jobs:
 
   fix:                        # installs, checks and Claude Code; read-only
     needs: scan
+    if: needs.scan.outputs.fix != 'false' || github.event_name == 'workflow_dispatch'   # "Run workflow" always fixes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      handoff: \${{ steps.patchhound.outputs.handoff }}   # false: nothing to publish, so publish is skipped
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false   # keeps the token out of .git/config, where installs and tests could read it
-      - uses: ${options.action}
+      - id: patchhound
+        uses: ${options.action}
         with:
           mode: fix
           ${claude}
@@ -69,7 +76,7 @@ jobs:
 
   publish:                    # checks each bundle and pushes it; runs nothing from your project
     needs: fix
-    if: always() && needs.fix.result != 'cancelled'
+    if: always() && (needs.fix.result == 'success' || needs.fix.result == 'failure') && needs.fix.outputs.handoff != 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write          # push the fix branch

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { exec } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { appendFile, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { Command } from 'commander';
@@ -14,7 +15,8 @@ import { defaultAction } from './setup/action-ref.js';
 import { init } from './setup/init.js';
 import { DEFAULT_SCHEDULE } from './setup/workflow.js';
 import type { FixRun } from './fix/fix.js';
-import { fixRepo } from './fix/fix.js';
+import { fixRepo, fixWork } from './fix/fix.js';
+import { decideFix, dependencyFiles, readSignal, saveSignal } from './fix/signal.js';
 import { failureExcerpt } from './fix/checks.js';
 import { publishHandoff } from './fix/handoff.js';
 import { formatReport } from './report.js';
@@ -47,6 +49,7 @@ interface ScanFlags {
   cacheDir?: string;
   triage: boolean;
   config?: string;
+  githubOutput?: boolean;
 }
 
 /** The central config file: the one named, else the default location when it exists. */
@@ -81,6 +84,7 @@ program
   .option('--no-cache', 'ask the network for everything, and keep nothing')
   .option('--no-triage', 'skip triage, notifications and the audit log (milestone 1 output only)')
   .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
+  .option('--github-output', "in GitHub Actions: tell the workflow whether the fix job has anything new to do (fix=true or false in $GITHUB_OUTPUT)")
   .action(async (dir: string, options: ScanFlags) => {
     const cacheDir = options.cache ? (options.cacheDir ?? defaultCacheDir()) : undefined;
     // A config that does not read fails here, before the scan saves which findings it has seen.
@@ -113,7 +117,25 @@ program
     // The text report already lists warnings; JSON output would otherwise hide them from a person watching.
     if (options.json) for (const warning of [...result.warnings, ...(assessment?.warnings ?? [])]) process.stderr.write(`patchhound: warning: ${warning}\n`);
     if (triageError !== null) process.stderr.write(`patchhound: triage failed: ${triageError}\n`);
+    if (options.githubOutput) await signalFixJob(dir, result, assessment, options.dryRun ?? false);
   });
+
+/**
+ * The Action's scan job tells the workflow whether to run the fix job (see fix/signal.ts). Without a
+ * triage to go by, it runs: the fix job works out for itself whether there is anything to do.
+ */
+async function signalFixJob(dir: string, result: ScanResult, assessment: Assessment | null, dryRun: boolean): Promise<void> {
+  const stateDir = join(dir, '.patchhound');
+  const decision = assessment
+    ? decideFix(fixWork(result, assessment), await dependencyFiles(dir, result.lockfile), await readSignal(stateDir))
+    : { fix: true, reason: 'triage did not finish', next: undefined };
+  if (!dryRun && decision.next !== undefined) {
+    await mkdir(stateDir, { recursive: true });
+    await saveSignal(stateDir, decision.next);
+  }
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `fix=${decision.fix}\n`);
+  process.stdout.write(`\nFix job: ${decision.fix ? 'runs' : 'skipped'}, ${decision.reason}.\n`);
+}
 
 /** The assessment in --json output: per finding, its triage and decision; and the messages. */
 function triageJson(a: Assessment) {

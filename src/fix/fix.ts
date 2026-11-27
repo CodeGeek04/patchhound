@@ -784,6 +784,15 @@ async function publishRun(run: FixRun, content: PrContent, info: RepoInfo, optio
 }
 
 /**
+ * What a fix job would take on, from a scan and its triage: the findings a fix PR would cover (with
+ * an action plain code can apply), and whether a malicious package is there. The scan job uses it to
+ * skip a fix job with nothing new to do (see fix/signal.ts).
+ */
+export function fixWork(result: ScanResult, assessment: Assessment): { keys: string[]; malicious: boolean } {
+  return { keys: [...select('fixes', result, assessment).selected].sort(), malicious: result.findings.some((f) => f.advisory.kind === 'malicious') };
+}
+
+/**
  * The findings this run takes on and the actions that fix them: for `malware`, every malicious
  * finding's action; for `fixes`, the findings the policy marks "would open a fix PR" (tier 1, when the
  * config turns it on), with the actions plain code can apply.
