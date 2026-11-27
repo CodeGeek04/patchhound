@@ -41,6 +41,7 @@ The job that runs your project's code has no write access and no secret but Clau
 - npm and pnpm lockfiles at the repo root are what it is tested on most (yarn works too).
 - Public repos run on Actions for free. A private repo uses its account's monthly Actions minutes (2,000 on GitHub Free): a run that finds nothing new is the scan alone, about 1 to 2 minutes, and one that fixes something takes 10 to 30. To run less often: `npx patchhound init --schedule "17 3 * * *"` (once a day).
 - Claude Code may spend at most $10 on one run (`fix.budget_usd`). On a Claude subscription, that counts against your plan's usage.
+- Does your team merge into staging before the default branch? `npx patchhound init --branch staging` sends the fix PRs there (`init` offers it when it sees a staging branch).
 - Try it locally first, without changing anything: `npx patchhound scan --dry-run` in a project folder.
 
 [docs/github-action.md](docs/github-action.md) has the workflow `init` writes, every setting, and what Patchhound will not do.

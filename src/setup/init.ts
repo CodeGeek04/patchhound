@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline/promises';
 import { isMap, isSeq, parseDocument } from 'yaml';
 import { REPO_FILE } from '../config.js';
 import type { GitHubRepo } from '../fix/git.js';
-import { addWorktree, git, removeWorktree, repoInfo } from '../fix/git.js';
+import { addWorktree, BRANCH_NAME, git, removeWorktree, repoInfo } from '../fix/git.js';
 import type { ToolResult } from '../fix/pm.js';
 import { runTool, safeEnv } from '../fix/pm.js';
 import { noDashes } from '../fix/pr-body.js';
@@ -54,6 +54,8 @@ export interface InitOptions {
   pr?: boolean;
   /** Replace a workflow already there. */
   force?: boolean;
+  /** The branch fix PRs go to (staging, say); the default branch when unset, or asked when the repo has a staging or develop branch. */
+  branch?: string;
   /** The GitHub repository; origin's by default. */
   repo?: GitHubRepo;
 }
@@ -63,6 +65,8 @@ export type SettingState = 'on' | 'turned on' | 'not on';
 
 export interface InitResult {
   repo: string;
+  /** The branch fix PRs go to. */
+  branch: string;
   /** The setup PR, when there was anything to add to the repo. */
   pr: string | null;
   merged: boolean;
@@ -93,7 +97,7 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
   const read = await io.gh(['api', `repos/${slug}`]);
   if (read.code !== 0) throw new Error(`gh cannot read ${slug}: ${lastLine(read.output)} (gh auth login signs in)`);
   const about = JSON.parse(read.output) as RepoAbout;
-  const base = about.default_branch;
+  const base = await fixBranch(slug, about.default_branch, options.branch, io);
 
   // What the files go on top of: the default branch as GitHub has it (a PR), or this checkout.
   let commit: string | null = null;
@@ -113,7 +117,7 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
 
   const files = new Map<string, string>();
   if (options.force || !(await present([WORKFLOW_PATH]))) {
-    files.set(WORKFLOW_PATH, workflowFile({ action: options.action, base, apiKey: options.apiKey ?? false, ...(options.schedule ? { schedule: options.schedule } : {}) }));
+    files.set(WORKFLOW_PATH, workflowFile({ action: options.action, base, defaultBranch: about.default_branch, apiKey: options.apiKey ?? false, ...(options.schedule ? { schedule: options.schedule } : {}) }));
   } else {
     io.log(`${WORKFLOW_PATH} is already on ${base}: kept (--force writes it again).`);
   }
@@ -156,7 +160,46 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
     url = pr.url;
     merged = await offerMerge(pr.url, pr.head, files, about, io);
   }
-  return { repo: slug, pr: url, merged, files: [...files.keys()], secrets: { claude, jev, slack }, actions, pullRequests };
+  return { repo: slug, branch: base, pr: url, merged, files: [...files.keys()], secrets: { claude, jev, slack }, actions, pullRequests };
+}
+
+/** Branches a team may send work to before it reaches the default branch, in the order init offers them. */
+const INTEGRATION_BRANCHES = ['staging', 'develop'];
+
+/**
+ * The branch fix PRs go to: the one asked for; else the one an earlier init set up (the workflow's
+ * PATCHHOUND_BASE, on the default branch or on a staging branch it has not reached main from yet);
+ * else, when the repo has a staging or develop branch, that one if the person says so; else the
+ * default branch.
+ */
+async function fixBranch(slug: string, defaultBranch: string, asked: string | undefined, io: InitIO): Promise<string> {
+  const exists = async (branch: string) => (await io.gh(['api', `repos/${slug}/branches/${encodeURIComponent(branch)}`, '--jq', '.name'])).code === 0;
+  let branch = asked;
+  if (branch === undefined) {
+    for (const candidate of [defaultBranch, ...INTEGRATION_BRANCHES.filter((b) => b !== defaultBranch)]) {
+      const read = await io.gh(['api', `repos/${slug}/contents/${WORKFLOW_PATH}?ref=${encodeURIComponent(candidate)}`, '--jq', '.content']);
+      if (read.code !== 0) continue;
+      const text = Buffer.from(read.output.replace(/\s/g, ''), 'base64').toString('utf8');
+      branch = /^\s*PATCHHOUND_BASE:\s*["']?([\w./-]+)/m.exec(text)?.[1] ?? (candidate === defaultBranch ? defaultBranch : undefined);
+      if (branch) break;
+    }
+  }
+  if (branch === undefined) {
+    branch = defaultBranch;
+    for (const candidate of INTEGRATION_BRANCHES.filter((b) => b !== defaultBranch)) {
+      if (!(await exists(candidate))) continue;
+      if (await io.ask(`Fix PRs go to ${defaultBranch}, the default branch. This repo also has ${candidate}: send them to ${candidate} instead?`, false)) branch = candidate;
+      break;
+    }
+  }
+  if (!BRANCH_NAME.test(branch)) throw new Error(`not a branch name: ${branch}`);
+  if (branch !== defaultBranch) {
+    if (!(await exists(branch))) throw new Error(`${slug} has no branch ${branch}`);
+    io.log(
+      `Fix PRs go to ${branch}, and the setup PR does too. Merging it into ${branch} starts the first run; scheduled runs start once the workflow reaches ${defaultBranch}, with your next release (GitHub runs schedules only from the default branch).`,
+    );
+  }
+  return branch;
 }
 
 /** Whether a .patchhound.yml already says how alerts go: dry_run, or a list of channels. */

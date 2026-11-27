@@ -46,6 +46,11 @@ describe('patchhound init', () => {
       calls.push(['gh', ...args]);
       const [a, b, c, d] = args;
       if (a === 'api' && b === 'repos/o/r') return ok('{"default_branch":"main","allow_merge_commit":true}');
+      // Branches and files as the local origin has them.
+      const branch = /^repos\/o\/r\/branches\/(.+)$/.exec(b ?? '')?.[1];
+      if (a === 'api' && branch) return git(origin, ['rev-parse', '--verify', `refs/heads/${decodeURIComponent(branch)}`]).then(() => ok(branch), () => fail('gh: Branch not found (HTTP 404)'));
+      const file = /^repos\/o\/r\/contents\/(.+)\?ref=(.+)$/.exec(b ?? '');
+      if (a === 'api' && file) return git(origin, ['show', `${decodeURIComponent(file[2]!)}:${file[1]}`]).then((text) => ok(Buffer.from(`${text}\n`).toString('base64')), () => fail('gh: Not Found (HTTP 404)'));
       if (a === 'secret' && b === 'list') return ok(secrets);
       if (a === 'api' && b === 'repos/o/r/actions/permissions') return actionsSettings;
       if (a === 'api' && b === 'repos/o/r/actions/permissions/selected-actions') return selected;
@@ -116,6 +121,7 @@ describe('patchhound init', () => {
 
     expect(result).toEqual({
       repo: 'o/r',
+      branch: 'main',
       pr: 'https://github.com/o/r/pull/7',
       merged: true,
       files: [WORKFLOW_PATH, '.patchhound.yml'],
@@ -152,7 +158,7 @@ describe('patchhound init', () => {
     secrets = 'CLAUDE_CODE_OAUTH_TOKEN\nTYPESAFE_API_KEY\nSLACK_WEBHOOK_URL\n';
     workflowSettings = ok('{"default_workflow_permissions":"write","can_approve_pull_request_reviews":true}');
     const result = await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
-    expect(result).toEqual({ repo: 'o/r', pr: null, merged: false, files: [], secrets: { claude: 'present', jev: 'present', slack: 'present' }, actions: 'on', pullRequests: 'on' });
+    expect(result).toEqual({ repo: 'o/r', branch: 'main', pr: null, merged: false, files: [], secrets: { claude: 'present', jev: 'present', slack: 'present' }, actions: 'on', pullRequests: 'on' });
     expect(questions).toEqual([]);
     expect(calls.filter((c) => c[0] === 'interactive' || c[1] === 'pr' || c[2] === '-X')).toEqual([]);
   });
@@ -168,6 +174,28 @@ describe('patchhound init', () => {
     expect(calls.some((c) => c[1] === 'pr' && c[2] === 'create')).toBe(false);
     expect(calls.some((c) => c[1] === 'pr' && c[2] === 'edit')).toBe(true);
     expect((await settings(await show('.patchhound.yml'))).fix.commitAs).toBe('actor');
+  });
+
+  it('sends fixes to staging when asked: the setup PR, the workflow and every job go there', async () => {
+    await git(checkout, ['push', '-q', 'origin', 'main:staging']);
+    answer = (q) => !q.startsWith('Merge');
+    const result = await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
+    expect(questions[0]).toBe('Fix PRs go to main, the default branch. This repo also has staging: send them to staging instead?');
+    expect(result.branch).toBe('staging');
+    expect(calls.find((c) => c[1] === 'pr' && c[2] === 'create')!.slice(0, 8)).toEqual(['gh', 'pr', 'create', '--repo', 'o/r', '--base', 'staging', '--head']);
+    expect(await show(WORKFLOW_PATH)).toBe(workflowFile({ action: ACTION, base: 'staging', defaultBranch: 'main' }));
+    expect(logs.some((line) => line.startsWith('Fix PRs go to staging, and the setup PR does too.'))).toBe(true);
+
+    // Once the workflow is there, a rerun knows the branch without asking.
+    await git(origin, ['update-ref', 'refs/heads/staging', 'refs/heads/patchhound/setup']);
+    questions = [];
+    expect((await init({ dir: checkout, action: ACTION, repo, vercel: false }, io())).branch).toBe('staging');
+    expect(questions.some((q) => q.startsWith('Fix PRs go to'))).toBe(false);
+  });
+
+  it('stops on a --branch the repo does not have, before changing anything', async () => {
+    await expect(init({ dir: checkout, action: ACTION, repo, vercel: false, branch: 'staging' }, io())).rejects.toThrow('o/r has no branch staging');
+    expect(calls.filter((c) => c[0] === 'interactive' || c[1] === 'secret' || c[2] === '-X')).toEqual([]);
   });
 
   it('never replaces a setup branch that has someone else\'s commit on it', async () => {

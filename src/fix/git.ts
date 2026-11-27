@@ -86,13 +86,22 @@ export interface RepoInfo {
   github: GitHubRepo | null;
 }
 
-export async function repoInfo(dir: string): Promise<RepoInfo> {
+/**
+ * The branch fixes go to: PATCHHOUND_BASE when set (the workflow sets it when fixes go to a branch
+ * other than the default, staging say), else origin's default branch, else the current one.
+ */
+export async function repoInfo(dir: string, env: NodeJS.ProcessEnv = process.env): Promise<RepoInfo> {
   const top = await git(dir, ['rev-parse', '--show-toplevel']);
   const url = await git(top, ['remote', 'get-url', 'origin']).catch(() => '');
-  const head = await git(top, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => '');
-  const base = head.startsWith('origin/') ? head.slice('origin/'.length) : await git(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const named = env.PATCHHOUND_BASE?.trim() ?? '';
+  if (named && !BRANCH_NAME.test(named)) throw new Error(`PATCHHOUND_BASE is not a branch name: ${named}`);
+  const head = named ? '' : await git(top, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).catch(() => '');
+  const base = named || (head.startsWith('origin/') ? head.slice('origin/'.length) : await git(top, ['rev-parse', '--abbrev-ref', 'HEAD']));
   return { top, base, github: url ? parseGitHubRemote(url) : null };
 }
+
+/** A branch name Patchhound accepts: what git allows, minus anything a shell or YAML could misread. */
+export const BRANCH_NAME = /^(?!-)(?!.*\.\.)[\w./-]+$/;
 
 /**
  * patchhound's own state folder: never part of a fix. In CI the Action restores it into the
@@ -181,9 +190,17 @@ export async function openPullRequest(repo: GitHubRepo, branch: string): Promise
 }
 
 /** A pull request's state (OPEN, CLOSED or MERGED), or null when gh cannot tell. */
-export async function pullRequestState(url: string): Promise<string | null> {
-  const result = await runTool(['gh', 'pr', 'view', url, '--json', 'state', '--jq', '.state'], { cwd: process.cwd(), timeoutMs: 60_000, env: ghEnv() });
-  return result.code === 0 ? result.output.trim() || null : null;
+/**
+ * A pull request's state (OPEN, CLOSED or MERGED), or null when gh cannot tell. With `base`, an open
+ * PR into another branch (from before fixes went to staging, say) is "OPEN into main", not OPEN: it
+ * covers nothing for `base`.
+ */
+export async function pullRequestState(url: string, base?: string): Promise<string | null> {
+  const result = await runTool(['gh', 'pr', 'view', url, '--json', 'state,baseRefName', '--jq', '"\\(.state) \\(.baseRefName)"'], { cwd: process.cwd(), timeoutMs: 60_000, env: ghEnv() });
+  if (result.code !== 0) return null;
+  const [state, into] = result.output.trim().split(' ');
+  if (!state) return null;
+  return base !== undefined && into && into !== base && state === 'OPEN' ? `OPEN into ${into}` : state;
 }
 
 /** Runs gh, throwing with its message when it fails. */
@@ -239,15 +256,18 @@ export async function publishPullRequest(
   await writeFile(bodyFile, options.body);
   try {
     // --head matches the branch name in forks too: only a PR from this repository's own branch is ours.
-    const open = JSON.parse(await gh(['pr', 'list', '--repo', slug, '--head', options.branch, '--state', 'open', '--json', 'number,url,isCrossRepository'], dir)) as {
+    const open = JSON.parse(await gh(['pr', 'list', '--repo', slug, '--head', options.branch, '--state', 'open', '--json', 'number,url,isCrossRepository,baseRefName'], dir)) as {
       number: number;
       url: string;
       isCrossRepository: boolean;
+      baseRefName?: string;
     }[];
     const existing = open.find((pr) => !pr.isCrossRepository);
     let pr: PullRequest;
     if (existing) {
-      await gh(['pr', 'edit', String(existing.number), '--repo', slug, '--title', options.title, '--body-file', bodyFile], dir);
+      // A PR opened before fixes went to another branch (main, then staging) is pointed at the new one.
+      const retarget = existing.baseRefName !== undefined && existing.baseRefName !== options.base ? ['--base', options.base] : [];
+      await gh(['pr', 'edit', String(existing.number), '--repo', slug, '--title', options.title, '--body-file', bodyFile, ...retarget], dir);
       pr = { number: existing.number, url: existing.url, created: false };
     } else {
       const out = await gh(
