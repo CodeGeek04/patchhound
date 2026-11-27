@@ -25,14 +25,14 @@ import { DiskCache, defaultCacheDir } from './util/cache.js';
 import { OsvClient } from './watch/osv.js';
 import { pollOnce } from './watch/watcher.js';
 
-// tsx has read it by now (the Action points it at bulwark's own tsconfig). What the fix runs,
+// tsx has read it by now (the Action points it at patchhound's own tsconfig). What the fix runs,
 // the project's installs and tests, must find the project's own tsconfig, as it would without us.
 delete process.env.TSX_TSCONFIG_PATH;
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
 const program = new Command()
-  .name('bulwark')
+  .name('patchhound')
   .version(version)
   .description('Checks whether new advisories affect your app, and fixes them.');
 
@@ -73,14 +73,14 @@ program
   .argument('[dir]', 'project directory', '.')
   .option('--dry-run', 'report only; do not save which advisories were seen')
   .option('--json', 'print JSON instead of the text report')
-  .option('--state <path>', 'state file (default: <dir>/.bulwark/state.json)')
+  .option('--state <path>', 'state file (default: <dir>/.patchhound/state.json)')
   .option('--details', 'list every advisory under the fix plan')
   .option('--no-fix-plan', 'skip the fix plan (no npm registry requests)')
   .option('--lockfile <file>', 'the lockfile to scan, when the project has several')
-  .option('--cache-dir <dir>', 'keep advisories and registry metadata here between runs (default: ~/.cache/bulwark)')
+  .option('--cache-dir <dir>', 'keep advisories and registry metadata here between runs (default: ~/.cache/patchhound)')
   .option('--no-cache', 'ask the network for everything, and keep nothing')
   .option('--no-triage', 'skip triage, notifications and the audit log (milestone 1 output only)')
-  .option('--config <file>', 'central config file (default: ~/.config/bulwark/config.yml when it exists)')
+  .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
   .action(async (dir: string, options: ScanFlags) => {
     const cacheDir = options.cache ? (options.cacheDir ?? defaultCacheDir()) : undefined;
     // A config that does not read fails here, before the scan saves which findings it has seen.
@@ -111,8 +111,8 @@ program
       if (assessment) process.stdout.write(`\n${formatAssessment(assessment)}\n`);
     }
     // The text report already lists warnings; JSON output would otherwise hide them from a person watching.
-    if (options.json) for (const warning of [...result.warnings, ...(assessment?.warnings ?? [])]) process.stderr.write(`bulwark: warning: ${warning}\n`);
-    if (triageError !== null) process.stderr.write(`bulwark: triage failed: ${triageError}\n`);
+    if (options.json) for (const warning of [...result.warnings, ...(assessment?.warnings ?? [])]) process.stderr.write(`patchhound: warning: ${warning}\n`);
+    if (triageError !== null) process.stderr.write(`patchhound: triage failed: ${triageError}\n`);
   });
 
 /** The assessment in --json output: per finding, its triage and decision; and the messages. */
@@ -147,12 +147,12 @@ program
   .option('--interval <minutes>', 'minutes between polls', '5')
   .option('--once', 'poll once and exit, for cron or CI')
   .option('--state <path>', 'watch state (default: <cache dir>/watch.json)')
-  .option('--cache-dir <dir>', 'keep advisories and registry metadata here between runs (default: ~/.cache/bulwark)')
+  .option('--cache-dir <dir>', 'keep advisories and registry metadata here between runs (default: ~/.cache/patchhound)')
   .option('--no-cache', 'ask the network for everything, and keep nothing')
-  .option('--exec <command>', 'run this shell command for each project with new or updated findings (BULWARK_PROJECT names it)')
+  .option('--exec <command>', 'run this shell command for each project with new or updated findings (PATCHHOUND_PROJECT names it)')
   .option('--details', 'list every advisory under the fix plan')
   .option('--no-triage', 'skip triage, notifications and the audit log')
-  .option('--config <file>', 'central config file (default: ~/.config/bulwark/config.yml when it exists)')
+  .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
   .action(async (given: string[], options: WatchFlags) => {
     const centralConfig = await central(options.config);
     const dirs = given.length > 0 ? given : centralConfig && centralRepos(centralConfig).length > 0 ? centralRepos(centralConfig) : ['.'];
@@ -164,7 +164,7 @@ program
     for (;;) {
       const poll = await pollOnce({ dirs, statePath, ...(options.cache ? { cacheDir } : {}) });
       const stamp = `${new Date().toISOString().slice(0, 19).replace('T', ' ')} UTC`;
-      for (const warning of poll.warnings) process.stderr.write(`bulwark: warning: ${warning}\n`);
+      for (const warning of poll.warnings) process.stderr.write(`patchhound: warning: ${warning}\n`);
       for (const { dir, reasons, result, error } of poll.scans) {
         if (error !== undefined) {
           process.stderr.write(`${stamp} ${dir}: ${error}\n`);
@@ -201,7 +201,7 @@ program
   .argument('<id>', 'advisory id: GHSA, CVE or MAL')
   .argument('[dir]', 'project directory', '.')
   .action(async (id: string, dir: string) => {
-    process.stdout.write(`${formatExplain(await readAllAudit(join(dir, '.bulwark')), id)}\n`);
+    process.stdout.write(`${formatExplain(await readAllAudit(join(dir, '.patchhound')), id)}\n`);
   });
 
 program
@@ -209,7 +209,7 @@ program
   .description('Does this advisory, or the vulnerability a link describes, affect the project? Saves nothing.')
   .argument('<target>', 'advisory id (GHSA, CVE, MAL) or a link to a post, advisory or issue')
   .argument('[dir]', 'project directory', '.')
-  .option('--config <file>', 'central config file (default: ~/.config/bulwark/config.yml when it exists)')
+  .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
   .option('--no-cache', 'ask the network for everything, and keep nothing')
   .action(async (target: string, dir: string, options: { config?: string; cache: boolean }) => {
     const cacheDir = options.cache ? defaultCacheDir() : undefined;
@@ -228,7 +228,7 @@ program
         })()),
     });
     process.stdout.write(`${output}\n`);
-    for (const warning of warnings) process.stderr.write(`bulwark: warning: ${warning}\n`);
+    for (const warning of warnings) process.stderr.write(`patchhound: warning: ${warning}\n`);
   });
 
 program
@@ -239,10 +239,10 @@ program
   .option('--in-place', 'work in the checkout itself, as in CI, instead of a temporary worktree')
   .option('--no-agent', 'plain code only: no Claude Code')
   .option('--force', 'redo the fix even when the open PR already covers the same findings')
-  .option('--handoff <dir>', 'instead of pushing, write each PR as a git bundle and its text to <dir>, for `bulwark publish` in a job that holds the write token')
+  .option('--handoff <dir>', 'instead of pushing, write each PR as a git bundle and its text to <dir>, for `patchhound publish` in a job that holds the write token')
   .option('--budget <usd>', 'most Claude Code may spend in this run (overrides fix.budget_usd)')
   .option('--time-limit <minutes>', 'longest one Claude Code session, install or check may run (overrides fix.time_limit_minutes)')
-  .option('--config <file>', 'central config file (default: ~/.config/bulwark/config.yml when it exists)')
+  .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
   .option('--no-cache', 'ask the network for everything, and keep nothing')
   .action(async (dir: string, options: { pr?: boolean; inPlace?: boolean; agent: boolean; force?: boolean; handoff?: string; budget?: string; timeLimit?: string; config?: string; cache: boolean }) => {
     const config = await loadConfig(dir, { central: await central(options.config) });
@@ -265,24 +265,24 @@ program
       force: options.force === true,
       ...(options.handoff ? { handoff: resolve(options.handoff) } : {}),
       ...(options.cache ? { cacheDir: defaultCacheDir() } : {}),
-      log: (line) => process.stderr.write(`bulwark: ${line}\n`),
+      log: (line) => process.stderr.write(`patchhound: ${line}\n`),
     });
     process.stdout.write(`${runs.map(formatFixRun).join('\n\n')}\n`);
     // Tried, and every change broke a check: worth a red step in CI.
     // A run that needs a person fails the command (and the Action's step); one that kept nothing does not.
-    for (const run of runs) if (run.attention) process.stderr.write(`bulwark: ${run.kind}: needs a person: ${run.attention}\n`);
+    for (const run of runs) if (run.attention) process.stderr.write(`patchhound: ${run.kind}: needs a person: ${run.attention}\n`);
     if (runs.some((r) => r.attention)) process.exitCode = 1;
   });
 
 program
   .command('publish')
-  .description('Check the PRs `fix --handoff` wrote (their base, that every commit is bulwark\'s, the files they touch) and push them; runs nothing from the repository')
+  .description('Check the PRs `fix --handoff` wrote (their base, that every commit is patchhound\'s, the files they touch) and push them; runs nothing from the repository')
   .argument('<handoff>', 'the folder `fix --handoff` wrote')
   .argument('[dir]', 'a checkout of the repository the PRs go to', '.')
-  .option('--config <file>', 'central config file (default: ~/.config/bulwark/config.yml when it exists)')
+  .option('--config <file>', 'central config file (default: ~/.config/patchhound/config.yml when it exists)')
   .action(async (handoff: string, dir: string, options: { config?: string }) => {
     const config = await loadConfig(dir, { central: await central(options.config) });
-    const results = await publishHandoff(dir, resolve(handoff), config, { log: (line) => process.stderr.write(`bulwark: ${line}\n`) });
+    const results = await publishHandoff(dir, resolve(handoff), config, { log: (line) => process.stderr.write(`patchhound: ${line}\n`) });
     for (const r of results) process.stdout.write(`${r.kind}: ${r.pr ? `${r.pr.url}${r.pr.created ? '' : ' (updated)'}` : `not published: ${r.refused}`}\n`);
     if (results.length === 0) process.stdout.write('nothing to publish\n');
     if (results.some((r) => r.refused)) process.exitCode = 1;
@@ -312,16 +312,16 @@ function formatFixRun(run: FixRun): string {
 
 program
   .command('init')
-  .description('Set a GitHub repo up for Bulwark: the workflow, the Claude token secret, and a setup PR to merge')
+  .description('Set a GitHub repo up for Patchhound: the workflow, the Claude token secret, and a setup PR to merge')
   .argument('[dir]', 'a checkout of the repo', '.')
   .option('--vercel', 'the repo deploys on Vercel: fix commits are authored by the person who started the run, so Vercel builds the preview')
   .option('--no-vercel', 'the repo does not deploy on Vercel (do not ask)')
   .option('--api-key', 'use an Anthropic API key (secret ANTHROPIC_API_KEY) instead of a Claude token')
   .option('--schedule <cron>', 'when scheduled runs start (cron, UTC)', DEFAULT_SCHEDULE)
   .option('--no-pr', 'write the files into [dir] instead of opening a setup PR')
-  .option('--force', 'replace a Bulwark workflow already there')
-  .option('--action <ref>', 'the Action the workflow runs, owner/repo@ref (default: this copy of Bulwark)')
-  .option('--config-only', 'only write a starter .bulwark.yml, with every setting')
+  .option('--force', 'replace a Patchhound workflow already there')
+  .option('--action <ref>', 'the Action the workflow runs, owner/repo@ref (default: this copy of Patchhound)')
+  .option('--config-only', 'only write a starter .patchhound.yml, with every setting')
   .action(async (dir: string, options: { vercel?: boolean; apiKey?: boolean; schedule: string; pr: boolean; force?: boolean; action?: string; configOnly?: boolean }) => {
     if (options.configOnly) {
       process.stdout.write(`Wrote ${await initConfig(dir)}. Notifications stay in dry run until you set dry_run: false.\n`);
@@ -342,12 +342,12 @@ program
     process.stdout.write(
       [
         '',
-        `Bulwark is set up for ${result.repo}:`,
+        `Patchhound is set up for ${result.repo}:`,
         `  files: ${result.files.join(', ')}${result.pr ? ` in ${result.pr}` : ''}`,
         `  Action: ${action}`,
         `  Claude secret: ${secret}`,
         `  Actions opening pull requests: ${prs}`,
-        result.pr ? 'Merge that PR and the first run starts (Actions tab, bulwark).' : 'Commit the files to the default branch and the first run starts.',
+        result.pr ? 'Merge that PR and the first run starts (Actions tab, patchhound).' : 'Commit the files to the default branch and the first run starts.',
         '',
       ].join('\n'),
     );
@@ -357,16 +357,16 @@ program
 async function runHook(command: string, dir: string, fresh: number): Promise<void> {
   try {
     const { stdout, stderr } = await promisify(exec)(command, {
-      env: { ...process.env, BULWARK_PROJECT: dir, BULWARK_NEW: String(fresh) },
+      env: { ...process.env, PATCHHOUND_PROJECT: dir, PATCHHOUND_NEW: String(fresh) },
     });
     process.stdout.write(stdout);
     process.stderr.write(stderr);
   } catch (error) {
-    process.stderr.write(`bulwark: --exec failed for ${dir}: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`patchhound: --exec failed for ${dir}: ${error instanceof Error ? error.message : String(error)}\n`);
   }
 }
 
 program.parseAsync().catch((error: unknown) => {
-  process.stderr.write(`bulwark: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(`patchhound: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });

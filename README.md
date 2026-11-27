@@ -1,6 +1,6 @@
-# Bulwark
+# Patchhound
 
-Bulwark watches your npm dependencies for security advisories, works out which ones your code actually exposes, and keeps one pull request open that fixes what it can. It runs in your repo's own GitHub Actions: there is no service to sign up for, and your code never leaves GitHub's runners.
+Patchhound watches your npm dependencies for security advisories, works out which ones your code actually exposes, and keeps one pull request open that fixes what it can. It runs in your repo's own GitHub Actions: there is no service to sign up for, and your code never leaves GitHub's runners.
 
 ## Set it up
 
@@ -13,14 +13,14 @@ You need:
 Then, in your repo's folder:
 
 ```
-npx bulwark init
+npx patchhound init
 ```
 
-1. It asks whether the repo deploys on Vercel. Answer yes if it does: Vercel builds a private repo's previews only for its team members' commits, so Bulwark then makes you the author of its fix commits.
-2. It offers to make a Claude token with `claude setup-token`. Sign in in the browser, copy the token it prints, and paste it at the next prompt. It is stored as the repo secret `CLAUDE_CODE_OAUTH_TOKEN` and never shown. To use an API key instead: `npx bulwark init --api-key`.
-3. It opens a pull request named **Add Bulwark**. Merge it.
+1. It asks whether the repo deploys on Vercel. Answer yes if it does: Vercel builds a private repo's previews only for its team members' commits, so Patchhound then makes you the author of its fix commits.
+2. It offers to make a Claude token with `claude setup-token`. Sign in in the browser, copy the token it prints, and paste it at the next prompt. It is stored as the repo secret `CLAUDE_CODE_OAUTH_TOKEN` and never shown. To use an API key instead: `npx patchhound init --api-key`.
+3. It opens a pull request named **Add Patchhound**. Merge it.
 
-Merging starts the first run, and it runs every 4 hours after that. Watch it in the repo's **Actions** tab, under **bulwark**: each run's **Summary** page says what it found, what it fixed and why anything was left out. When it can fix something, a pull request from the branch `bulwark/fixes` appears. Review it and merge it like any other.
+Merging starts the first run, and it runs every 4 hours after that. Watch it in the repo's **Actions** tab, under **patchhound**: each run's **Summary** page says what it found, what it fixed and why anything was left out. When it can fix something, a pull request from the branch `patchhound/fixes` appears. Review it and merge it like any other.
 
 `init` does not touch your checkout: it makes the pull request from a fresh copy of your default branch.
 
@@ -38,9 +38,9 @@ The job that runs your project's code has no write access and no secret but Clau
 - npm and pnpm lockfiles at the repo root are what it is tested on most (yarn works too).
 - Public repos run on Actions for free. A private repo uses its monthly Actions minutes: a run takes about 3 to 5 minutes when nothing is new and 10 to 30 when it fixes something.
 - Claude Code may spend at most $10 on one run (`fix.budget_usd`). On a Claude subscription, that counts against your plan's usage.
-- Try it locally first, without changing anything: `npx bulwark scan --dry-run` in a project folder.
+- Try it locally first, without changing anything: `npx patchhound scan --dry-run` in a project folder.
 
-[docs/github-action.md](docs/github-action.md) has the workflow `init` writes, every setting, and what Bulwark will not do.
+[docs/github-action.md](docs/github-action.md) has the workflow `init` writes, every setting, and what Patchhound will not do.
 
 ## License
 

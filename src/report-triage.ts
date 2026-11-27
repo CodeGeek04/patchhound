@@ -32,7 +32,7 @@ export function formatAssessment(a: Assessment): string {
   };
   lines.push(`Notify: ${notify.length}${notify.length > 0 ? ` (${byRule(notify)})` : ''}. Weekly digest: ${digest.length}${digest.length > 0 ? ` (${byRule(digest)})` : ''}.`);
   const fixPr = a.findings.filter((f) => f.decision.wouldDo.some((w) => w.tier === 'fix-pr')).length;
-  if (fixPr > 0) lines.push(`Tier 1: one fix PR would cover ${count(fixPr, 'finding', 'findings')} (bulwark fix makes it).`);
+  if (fixPr > 0) lines.push(`Tier 1: one fix PR would cover ${count(fixPr, 'finding', 'findings')} (patchhound fix makes it).`);
   for (const tier of ['auto-merge', 'containment'] as const) {
     const n = a.findings.filter((f) => f.decision.wouldDo.some((w) => w.tier === tier)).length;
     if (n > 0) lines.push(`Tier ${tier === 'auto-merge' ? 2 : 3} (${tier}) conditions hold for ${count(n, 'finding', 'findings')} (logged only).`);

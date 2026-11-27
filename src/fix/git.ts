@@ -13,7 +13,7 @@ export async function git(dir: string, args: readonly string[], env?: NodeJS.Pro
   return result.output.trim();
 }
 
-/** gh gets the GitHub token; nothing else bulwark runs does. */
+/** gh gets the GitHub token; nothing else patchhound runs does. */
 const ghEnv = () => safeEnv(['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN']);
 
 /** Who a commit is from. */
@@ -23,24 +23,24 @@ export interface Identity {
 }
 
 /**
- * GitHub Actions' own bot: the committer of every commit bulwark makes, and by default its
+ * GitHub Actions' own bot: the committer of every commit patchhound makes, and by default its
  * author too. GitHub shows it as github-actions[bot].
  */
 export const SELF: Identity = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com' };
 
 /**
  * The address earlier versions committed with. GitHub links it to an unrelated account, so it is
- * never written again; it is still read, so a PR opened before the change stays bulwark's.
+ * never written again; it is still read, so a PR opened before the change stays patchhound's.
  */
 const FORMER_EMAIL = 'security-agent@users.noreply.github.com';
 
-/** Whether bulwark made a commit: it is the committer (whoever the author is, see commitAuthor). */
+/** Whether patchhound made a commit: it is the committer (whoever the author is, see commitAuthor). */
 export function isOwnCommit(committerEmail: string): boolean {
   return committerEmail === SELF.email || committerEmail === FORMER_EMAIL;
 }
 
 /**
- * The author of bulwark's commits. `bot`: SELF. `actor`: the person who started the workflow
+ * The author of patchhound's commits. `bot`: SELF. `actor`: the person who started the workflow
  * run, from GitHub's GITHUB_ACTOR and GITHUB_ACTOR_ID: a host that builds previews only for its own
  * members' commits (Vercel, for a private repo) then builds the PR. Outside a run, or when a bot
  * started it, SELF.
@@ -95,17 +95,17 @@ export async function repoInfo(dir: string): Promise<RepoInfo> {
 }
 
 /**
- * bulwark's own state folder: never part of a fix. In CI the Action restores it into the
+ * patchhound's own state folder: never part of a fix. In CI the Action restores it into the
  * checkout from its cache, so it must not count as a change, be committed, or be cleaned away.
  */
-export const OWN_STATE = '.bulwark';
+export const OWN_STATE = '.patchhound';
 
 /** True when the checkout has changes git would commit. */
 export async function isDirty(dir: string): Promise<boolean> {
   return (await git(dir, ['status', '--porcelain', '--', '.', `:(exclude)${OWN_STATE}`])) !== '';
 }
 
-/** Throws away untracked files (what a rolled-back install or agent left), keeping bulwark's state. */
+/** Throws away untracked files (what a rolled-back install or agent left), keeping patchhound's state. */
 export async function cleanUntracked(dir: string): Promise<void> {
   await git(dir, ['clean', '-fdq', '-e', OWN_STATE]);
 }
@@ -122,7 +122,7 @@ export async function baseCommit(top: string, base: string): Promise<string> {
  * branches are never touched (the PR branch exists only on GitHub).
  */
 export async function addWorktree(top: string, commit: string): Promise<string> {
-  const parent = await mkdtemp(join(tmpdir(), 'bulwark-fix-'));
+  const parent = await mkdtemp(join(tmpdir(), 'patchhound-fix-'));
   const path = join(parent, 'repo');
   try {
     await git(top, ['worktree', 'add', '--force', '--detach', path, commit]);
@@ -193,7 +193,7 @@ async function gh(args: readonly string[], cwd: string): Promise<string> {
   return result.output.trim();
 }
 
-/** The PR branch has commits bulwark did not make; it is left alone. */
+/** The PR branch has commits patchhound did not make; it is left alone. */
 export class BranchTaken extends Error {}
 
 /** GitHub's REST API through gh, filtered by `jq` (answers can be large): the parsed result, or null for a 404. */
@@ -207,7 +207,7 @@ export const githubApi: GitHubApi = async (path, jq) => {
 };
 
 /**
- * Whether `branch` in `repo` has a commit beyond `base` (the branch PRs go to) that bulwark
+ * Whether `branch` in `repo` has a commit beyond `base` (the branch PRs go to) that patchhound
  * did not make. GitHub answers it (compare base...branch): a shallow checkout, as in the Action,
  * does not have the history to.
  */
@@ -220,7 +220,7 @@ export async function othersOnBranch(repo: GitHubRepo, branch: string, base: str
  * Pushes HEAD to `branch` on origin and opens a PR in `repo` (origin's own repository, named
  * explicitly so gh never picks an upstream fork parent), or updates the one already open from that
  * branch in that repository. The push replaces the branch only when every commit on it beyond `base`
- * is bulwark's own, and only if it has not moved since it was checked (--force-with-lease).
+ * is patchhound's own, and only if it has not moved since it was checked (--force-with-lease).
  */
 export async function publishPullRequest(
   dir: string,
@@ -231,10 +231,10 @@ export async function publishPullRequest(
   const ref = `refs/heads/${options.branch}`;
   const there = (await remoteGit(dir, ['ls-remote', 'origin', ref])).split(/\s/)[0] ?? '';
   if (there && (await othersOnBranch(repo, options.branch, options.base))) {
-    throw new BranchTaken(`${options.branch} on GitHub has commits bulwark did not make, so it was left alone; merge or close its PR, or delete the branch, and the next run opens a fresh one`);
+    throw new BranchTaken(`${options.branch} on GitHub has commits patchhound did not make, so it was left alone; merge or close its PR, or delete the branch, and the next run opens a fresh one`);
   }
   await remoteGit(dir, ['push', '--quiet', `--force-with-lease=${ref}:${there}`, 'origin', `HEAD:${ref}`]);
-  const bodyDir = await mkdtemp(join(tmpdir(), 'bulwark-pr-'));
+  const bodyDir = await mkdtemp(join(tmpdir(), 'patchhound-pr-'));
   const bodyFile = join(bodyDir, 'body.md');
   await writeFile(bodyFile, options.body);
   try {

@@ -66,7 +66,7 @@ describe('addNextBundles', () => {
 
 describe('addNextBundles with a cache', () => {
   it("keeps what a next version bundles for good, but asks again about one jsDelivr did not have", async () => {
-    const cache = new DiskCache(await mkdtemp(join(tmpdir(), 'bulwark-cache-')));
+    const cache = new DiskCache(await mkdtemp(join(tmpdir(), 'patchhound-cache-')));
     const fake = fakeFetch({
       'GET https://cdn.jsdelivr.net/npm/next@15.2.2/dist/compiled/react-server-dom-webpack/package.json': () => ({
         peerDependencies: { react: '19.1.0-canary-029e8bd6-20250306' },

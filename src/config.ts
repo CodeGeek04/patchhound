@@ -75,7 +75,7 @@ export const DEFAULT_CONFIG: Config = {
     timeLimitMinutes: 30,
     model: 'claude-opus-5-5',
     effort: 'high',
-    branch: 'bulwark/fixes',
+    branch: 'patchhound/fixes',
     commitAs: 'bot',
   },
 };
@@ -141,13 +141,13 @@ const centralFile = z.strictObject({
 type Settings = z.infer<typeof repoFile>;
 export type CentralConfig = z.infer<typeof centralFile>;
 
-/** `$XDG_CONFIG_HOME/bulwark/config.yml`, else `~/.config/bulwark/config.yml`. */
+/** `$XDG_CONFIG_HOME/patchhound/config.yml`, else `~/.config/patchhound/config.yml`. */
 export function defaultCentralPath(): string {
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-  return join(base, 'bulwark', 'config.yml');
+  return join(base, 'patchhound', 'config.yml');
 }
 
-export const REPO_FILE = '.bulwark.yml';
+export const REPO_FILE = '.patchhound.yml';
 
 /** The central file, or null when there is none. A file that exists but does not read is an error. */
 export async function loadCentral(path: string): Promise<CentralConfig | null> {
@@ -157,7 +157,7 @@ export async function loadCentral(path: string): Promise<CentralConfig | null> {
 
 /**
  * The settings for the repo in `dir`: the built-in defaults, then the central file's `defaults`, then
- * its entry for this repo, then the repo's own `.bulwark.yml`. Containment can only be turned
+ * its entry for this repo, then the repo's own `.patchhound.yml`. Containment can only be turned
  * on by the central file (spec, "Config").
  */
 export async function loadConfig(dir: string, options: { central?: CentralConfig | null } = {}): Promise<Config> {
@@ -256,7 +256,7 @@ function expandHome(path: string): string {
   return resolve(path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path);
 }
 
-export const STARTER_CONFIG = `# bulwark settings for this repo. Every key is optional; these are the defaults.
+export const STARTER_CONFIG = `# patchhound settings for this repo. Every key is optional; these are the defaults.
 
 # Where the deployed app runs: internet-facing (the default, also for apps behind a login) or internal.
 exposure: internet-facing
@@ -291,7 +291,7 @@ triage:
     model: claude-opus-5-5
     effort: medium
 
-# Fix PRs (bulwark fix --pr, or the GitHub Action).
+# Fix PRs (patchhound fix --pr, or the GitHub Action).
 fix:
   # Commands that must keep passing. Empty: the build, typecheck and test scripts, those that pass before any change.
   checks: []
@@ -307,7 +307,7 @@ fix:
   commit_as: bot
 `;
 
-/** Writes a starter `.bulwark.yml`; refuses to replace one. */
+/** Writes a starter `.patchhound.yml`; refuses to replace one. */
 export async function initConfig(dir: string): Promise<string> {
   const path = join(dir, REPO_FILE);
   try {

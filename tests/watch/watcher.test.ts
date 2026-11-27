@@ -58,7 +58,7 @@ describe('pollOnce', () => {
 
   /** Two projects (npm-app has lodash; pnpm-refresh does not), a fake network, and a scan that records its calls. */
   async function setup() {
-    const root = await mkdtemp(join(tmpdir(), 'bulwark-watch-'));
+    const root = await mkdtemp(join(tmpdir(), 'patchhound-watch-'));
     const npmApp = join(root, 'npm-app');
     const pnpmApp = join(root, 'pnpm-app');
     await mkdir(npmApp);

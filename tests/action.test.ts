@@ -15,7 +15,7 @@ interface Step {
 const steps = async (): Promise<Step[]> => (parse(await readFile(fileURLToPath(new URL('../action.yml', import.meta.url)), 'utf8')) as { runs: { steps: Step[] } }).runs.steps;
 
 describe('action.yml', () => {
-  it("runs every bulwark command with bulwark's own tsconfig, never the checkout's", async () => {
+  it("runs every patchhound command with patchhound's own tsconfig, never the checkout's", async () => {
     const tsx = (await steps()).filter((step) => step.run?.includes('node_modules/.bin/tsx'));
     expect(tsx.map((step) => step.name)).toHaveLength(3);
     for (const step of tsx) {
@@ -29,17 +29,17 @@ describe('action.yml', () => {
   it('keeps the scan job off every cache the fix job saved, and the fix job on the scan job\'s data', async () => {
     const os = '${{ runner.os }}';
     const run = '${{ github.run_id }}';
-    const state = ['~/.cache/bulwark', '.bulwark'];
+    const state = ['~/.cache/patchhound', '.patchhound'];
     const caches = (await steps())
       .filter((step) => step.uses?.startsWith('actions/cache/'))
       .map((step) => [step.uses!.split('@')[0], step.if, step.with!.key, step.with!['restore-keys'] ?? null, step.with!.path!.trim().split('\n').map((p) => p.trim())]);
     expect(caches).toEqual([
-      ['actions/cache/restore', "inputs.mode == 'scan'", `bulwark-${os}-scan-${run}`, `bulwark-${os}-scan-`, state],
+      ['actions/cache/restore', "inputs.mode == 'scan'", `patchhound-${os}-scan-${run}`, `patchhound-${os}-scan-`, state],
       // The fix history first, then this run's scan cache over it, by its exact key.
-      ['actions/cache/restore', "inputs.mode == 'fix'", `bulwark-${os}-fix-${run}`, `bulwark-${os}-fix-`, ['.bulwark/fix-audit.jsonl']],
-      ['actions/cache/restore', "inputs.mode == 'fix'", `bulwark-${os}-scan-${run}`, null, state],
-      ['actions/cache/save', "always() && inputs.mode == 'scan'", `bulwark-${os}-scan-${run}`, null, state],
-      ['actions/cache/save', "always() && inputs.mode == 'fix'", `bulwark-${os}-fix-${run}`, null, ['.bulwark/fix-audit.jsonl']],
+      ['actions/cache/restore', "inputs.mode == 'fix'", `patchhound-${os}-fix-${run}`, `patchhound-${os}-fix-`, ['.patchhound/fix-audit.jsonl']],
+      ['actions/cache/restore', "inputs.mode == 'fix'", `patchhound-${os}-scan-${run}`, null, state],
+      ['actions/cache/save', "always() && inputs.mode == 'scan'", `patchhound-${os}-scan-${run}`, null, state],
+      ['actions/cache/save', "always() && inputs.mode == 'fix'", `patchhound-${os}-fix-${run}`, null, ['.patchhound/fix-audit.jsonl']],
     ]);
   });
 });

@@ -52,8 +52,8 @@ export interface PublishResult {
 
 /**
  * The publish job: for each handed-off PR, checks the bundle and pushes it. Refuses a bundle whose
- * commits do not start at the declared base, that has a commit bulwark did not make, or that
- * touches .github/ or bulwark's config (a malware PR: anything but manifests and lockfiles).
+ * commits do not start at the declared base, that has a commit patchhound did not make, or that
+ * touches .github/ or patchhound's config (a malware PR: anything but manifests and lockfiles).
  * Branch names and labels come from this job's own config, not from the handoff.
  */
 export async function publishHandoff(
@@ -102,7 +102,7 @@ export async function publishHandoff(
     // same author from its own config and run.
     const author = commitAuthor(config.fix.commitAs).email;
     if (commits.some((line) => line.split(' ')[1] !== author || line.split(' ')[2] !== SELF.email)) {
-      refuse('it has a commit bulwark did not make');
+      refuse('it has a commit patchhound did not make');
       continue;
     }
     const files = (await git(dir, ['diff', '--name-only', entry.base, entry.head])).split('\n').filter(Boolean);

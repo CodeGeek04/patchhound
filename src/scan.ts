@@ -20,7 +20,7 @@ import { loadState, observe, prepareStateDir, saveState } from './watch/state.js
 
 export interface ScanOptions {
   dir: string;
-  /** Default: <dir>/.bulwark/state.json */
+  /** Default: <dir>/.patchhound/state.json */
   statePath?: string;
   /** Report only: do not save which advisories were seen. */
   dryRun?: boolean;
@@ -96,7 +96,7 @@ export async function scan(options: ScanOptions): Promise<ScanResult> {
   const dir = resolve(options.dir);
   const now = options.now ?? new Date();
   const fetchFn = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const statePath = options.statePath ?? join(dir, '.bulwark', 'state.json');
+  const statePath = options.statePath ?? join(dir, '.patchhound', 'state.json');
 
   const { lockfile, graph } = await loadGraph(dir, options.lockfile === undefined ? {} : { lockfile: options.lockfile });
   // Read the state before any request, so a bad state file costs no API calls.

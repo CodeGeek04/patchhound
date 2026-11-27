@@ -89,7 +89,7 @@ describe('runFixAgent', () => {
 describe('checks', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'bulwark-checks-'));
+    dir = await mkdtemp(join(tmpdir(), 'patchhound-checks-'));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });

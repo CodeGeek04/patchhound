@@ -7,7 +7,7 @@ import { centralRepos, DEFAULT_CONFIG, initConfig, loadCentral, loadConfig, STAR
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'bulwark-config-'));
+  dir = await mkdtemp(join(tmpdir(), 'patchhound-config-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -20,7 +20,7 @@ describe('loadConfig', () => {
   });
 
   it('layers the central defaults, its entry for the repo, then the repo file', async () => {
-    await writeFile(join(dir, '.bulwark.yml'), 'notify:\n  threshold: critical\n');
+    await writeFile(join(dir, '.patchhound.yml'), 'notify:\n  threshold: critical\n');
     const central = {
       defaults: { exposure: 'internal' as const, dry_run: false },
       repos: [{ path: dir, notify: { threshold: 'moderate' as const, channels: [{ type: 'slack' as const, webhook_env: 'TEAM_HOOK' }] } }],
@@ -30,17 +30,17 @@ describe('loadConfig', () => {
   });
 
   it('rejects unknown keys and bad values with the file and the path in the message', async () => {
-    await writeFile(join(dir, '.bulwark.yml'), 'exposre: internal\ntriage:\n  jev:\n    threshold: 2\n');
+    await writeFile(join(dir, '.patchhound.yml'), 'exposre: internal\ntriage:\n  jev:\n    threshold: 2\n');
     const error = await loadConfig(dir).catch((e: Error) => e);
-    expect(String(error)).toMatch(/\.bulwark\.yml: /);
+    expect(String(error)).toMatch(/\.patchhound\.yml: /);
     expect(String(error)).toContain('exposre: unknown key');
     expect(String(error)).toContain('triage.jev.threshold: Too big');
   });
 
   it('refuses containment from a repo file: only the central file can turn it on', async () => {
-    await writeFile(join(dir, '.bulwark.yml'), 'tiers:\n  containment: true\n');
+    await writeFile(join(dir, '.patchhound.yml'), 'tiers:\n  containment: true\n');
     await expect(loadConfig(dir)).rejects.toThrow(/only be turned on in the central config file/);
-    await writeFile(join(dir, '.bulwark.yml'), '');
+    await writeFile(join(dir, '.patchhound.yml'), '');
     expect((await loadConfig(dir, { central: { repos: [{ path: dir, tiers: { containment: true } }] } })).tiers.containment).toBe(true);
   });
 });

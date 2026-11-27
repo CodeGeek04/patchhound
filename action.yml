@@ -1,4 +1,4 @@
-name: bulwark
+name: patchhound
 description: Finds vulnerable npm dependencies, alerts on the ones your code exposes, and opens a pull request that fixes them.
 branding:
   icon: shield
@@ -46,7 +46,7 @@ runs:
       with:
         node-version: 22
 
-    - name: Install bulwark
+    - name: Install patchhound
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -81,32 +81,32 @@ runs:
       if: inputs.mode == 'scan'
       with:
         path: |
-          ~/.cache/bulwark
-          .bulwark
-        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
-        restore-keys: bulwark-${{ runner.os }}-scan-
+          ~/.cache/patchhound
+          .patchhound
+        key: patchhound-${{ runner.os }}-scan-${{ github.run_id }}
+        restore-keys: patchhound-${{ runner.os }}-scan-
 
-    # The fix job's own cache holds its fix history (.bulwark/fix-audit.jsonl) and nothing
+    # The fix job's own cache holds its fix history (.patchhound/fix-audit.jsonl) and nothing
     # else. Over it goes this run's scan cache, by its exact key: the fix job works from what the scan
     # job saw, never from what an earlier fix job saved.
     - uses: actions/cache/restore@v4
       if: inputs.mode == 'fix'
       with:
-        path: .bulwark/fix-audit.jsonl
-        key: bulwark-${{ runner.os }}-fix-${{ github.run_id }}
-        restore-keys: bulwark-${{ runner.os }}-fix-
+        path: .patchhound/fix-audit.jsonl
+        key: patchhound-${{ runner.os }}-fix-${{ github.run_id }}
+        restore-keys: patchhound-${{ runner.os }}-fix-
 
     - uses: actions/cache/restore@v4
       if: inputs.mode == 'fix'
       with:
         path: |
-          ~/.cache/bulwark
-          .bulwark
-        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
+          ~/.cache/patchhound
+          .patchhound
+        key: patchhound-${{ runner.os }}-scan-${{ github.run_id }}
 
-    # Every bulwark command names bulwark's own tsconfig (--tsconfig, and
+    # Every patchhound command names patchhound's own tsconfig (--tsconfig, and
     # TSX_TSCONFIG_PATH as a second guard). Otherwise tsx reads tsconfig.json from the working
-    # directory, the checkout, and applies its `paths` to bulwark's own imports: a tsconfig in
+    # directory, the checkout, and applies its `paths` to patchhound's own imports: a tsconfig in
     # the repo, or in a bundle the fix job forged, that maps `commander` to a file of its own would
     # run that file in this job, with this job's tokens.
     - name: Scan, triage and alert
@@ -121,9 +121,9 @@ runs:
       # The report also goes to the run's Summary page, away from the install noise.
       run: |
         set +e
-        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" scan . | tee "$RUNNER_TEMP/bulwark-scan.txt"
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" scan . | tee "$RUNNER_TEMP/patchhound-scan.txt"
         status=${PIPESTATUS[0]}
-        { echo '### bulwark scan'; echo '```'; cat "$RUNNER_TEMP/bulwark-scan.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        { echo '### patchhound scan'; echo '```'; cat "$RUNNER_TEMP/patchhound-scan.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         exit $status
 
     - name: Fix, and hand the pull requests to the publish job
@@ -137,18 +137,18 @@ runs:
         BUDGET: ${{ inputs.budget-usd }}
       run: |
         # The fix log is all the fix job's cache holds; an empty one saves without a warning.
-        mkdir -p .bulwark && touch .bulwark/fix-audit.jsonl
+        mkdir -p .patchhound && touch .patchhound/fix-audit.jsonl
         set +e
-        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" fix . --in-place --handoff "$RUNNER_TEMP/bulwark-handoff" ${BUDGET:+--budget "$BUDGET"} | tee "$RUNNER_TEMP/bulwark-fix.txt"
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" fix . --in-place --handoff "$RUNNER_TEMP/patchhound-handoff" ${BUDGET:+--budget "$BUDGET"} | tee "$RUNNER_TEMP/patchhound-fix.txt"
         status=${PIPESTATUS[0]}
-        { echo '### bulwark fix'; echo '```'; cat "$RUNNER_TEMP/bulwark-fix.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        { echo '### patchhound fix'; echo '```'; cat "$RUNNER_TEMP/patchhound-fix.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         exit $status
 
     - uses: actions/upload-artifact@v4
       if: always() && inputs.mode == 'fix'
       with:
-        name: bulwark-handoff
-        path: ${{ runner.temp }}/bulwark-handoff
+        name: patchhound-handoff
+        path: ${{ runner.temp }}/patchhound-handoff
         if-no-files-found: ignore
         retention-days: 3
 
@@ -158,22 +158,22 @@ runs:
       if: always() && inputs.mode == 'scan'
       with:
         path: |
-          ~/.cache/bulwark
-          .bulwark
-        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
+          ~/.cache/patchhound
+          .patchhound
+        key: patchhound-${{ runner.os }}-scan-${{ github.run_id }}
 
     - uses: actions/cache/save@v4
       if: always() && inputs.mode == 'fix'
       with:
-        path: .bulwark/fix-audit.jsonl
-        key: bulwark-${{ runner.os }}-fix-${{ github.run_id }}
+        path: .patchhound/fix-audit.jsonl
+        key: patchhound-${{ runner.os }}-fix-${{ github.run_id }}
 
     - uses: actions/download-artifact@v4
       if: inputs.mode == 'publish'
       continue-on-error: true
       with:
-        name: bulwark-handoff
-        path: ${{ runner.temp }}/bulwark-handoff
+        name: patchhound-handoff
+        path: ${{ runner.temp }}/patchhound-handoff
 
     - name: Check the pull requests and push them
       if: inputs.mode == 'publish'
@@ -182,12 +182,12 @@ runs:
         TSX_TSCONFIG_PATH: ${{ github.action_path }}/tsconfig.json
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
-        if [ ! -f "$RUNNER_TEMP/bulwark-handoff/handoff.json" ]; then
-          echo "bulwark: nothing to publish" | tee -a "$GITHUB_STEP_SUMMARY"
+        if [ ! -f "$RUNNER_TEMP/patchhound-handoff/handoff.json" ]; then
+          echo "patchhound: nothing to publish" | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
         set +e
-        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" publish "$RUNNER_TEMP/bulwark-handoff" . | tee "$RUNNER_TEMP/bulwark-publish.txt"
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" publish "$RUNNER_TEMP/patchhound-handoff" . | tee "$RUNNER_TEMP/patchhound-publish.txt"
         status=${PIPESTATUS[0]}
-        { echo '### bulwark publish'; echo '```'; cat "$RUNNER_TEMP/bulwark-publish.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        { echo '### patchhound publish'; echo '```'; cat "$RUNNER_TEMP/patchhound-publish.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         exit $status

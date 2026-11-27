@@ -344,7 +344,7 @@ async function fixFrom(kind: FixRun['kind'], branch: string, dir: string, info: 
         for (const file of touched.untracked) {
           if (PROTECTED.some((pattern) => pattern.test(file)) || generated.untracked.includes(file)) await rm(join(dir, file), { force: true });
         }
-        const committed = await commitAll(dir, noDashes(`fix: adapt the code to the ${what}\n\n${agent.answer?.summary ?? ''}\n\nMade by Claude Code for bulwark.`), commitAuthor(config.fix.commitAs));
+        const committed = await commitAll(dir, noDashes(`fix: adapt the code to the ${what}\n\n${agent.answer?.summary ?? ''}\n\nMade by Claude Code for patchhound.`), commitAuthor(config.fix.commitAs));
         const result = await checkCommitted();
         if (result.every((c) => c.passed)) {
           checked = result;
@@ -597,7 +597,7 @@ async function alreadyCovered(run: FixRun, info: RepoInfo, options: FixOptions, 
   // `base` is the commit this run starts from; the PR branch is compared with the base branch.
   if (!publishing(options)) return false;
   if (info.github && (await othersOnBranch(info.github, run.branch, info.base).catch(() => false))) {
-    run.note = `${run.branch} on GitHub has commits bulwark did not make, so it was left alone; merge or close its PR, or delete the branch, and the next run opens a fresh one`;
+    run.note = `${run.branch} on GitHub has commits patchhound did not make, so it was left alone; merge or close its PR, or delete the branch, and the next run opens a fresh one`;
     // A malicious package left in place needs a person.
     if (run.kind === 'malware') run.attention = run.note;
     return true;
@@ -605,7 +605,7 @@ async function alreadyCovered(run: FixRun, info: RepoInfo, options: FixOptions, 
   if (options.force) return false;
   const github = info.github;
   const covered = await coveringPullRequest(
-    join(info.top, '.bulwark', 'audit.jsonl'),
+    join(info.top, '.patchhound', 'audit.jsonl'),
     run.branch,
     new Set(run.selected),
     options.prState ?? pullRequestState,
@@ -627,7 +627,7 @@ function publishing(options: FixOptions): boolean {
 /** Records a run that tried something, published or not (see coveringPullRequest). */
 async function recordRun(run: FixRun, info: RepoInfo, options: FixOptions, project: string, base: string): Promise<void> {
   if (!publishing(options) || run.applied === null) return;
-  await appendAudit(join(info.top, '.bulwark', FIX_LOG), [
+  await appendAudit(join(info.top, '.patchhound', FIX_LOG), [
     {
       type: 'fix',
       at: new Date().toISOString(),
@@ -861,5 +861,5 @@ function commitMessage(kind: FixRun['kind'], phase: 'safe' | 'major', fixed: rea
   const ids = [...new Set(assessment.findings.filter((f) => fixed.includes(f.key)).map((f) => f.evidence.advisory.id))];
   const what = phase === 'safe' ? 'security updates' : 'major upgrades';
   const title = kind === 'malware' ? 'fix(deps): remove a malicious package' : `fix(deps): ${what} for ${ids.length} ${ids.length === 1 ? 'advisory' : 'advisories'}`;
-  return `${title}\n\nFixes: ${ids.join(', ') || 'none on their own (the checks needed this)'}\n\nApplied by bulwark from its fix plan.`;
+  return `${title}\n\nFixes: ${ids.join(', ') || 'none on their own (the checks needed this)'}\n\nApplied by patchhound from its fix plan.`;
 }

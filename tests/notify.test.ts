@@ -27,9 +27,9 @@ describe('alertMessage', () => {
       item(),
       item({ key: 'a|react-server-dom-turbopack@19.3.0', package: 'react-server-dom-turbopack', change: 'worse' }),
     ]);
-    expect(message.title).toBe('Bulwark: 2 advisories need attention in demo-app');
+    expect(message.title).toBe('Patchhound: 2 advisories need attention in demo-app');
     expect(message.text.split('\n')).toEqual([
-      'Bulwark: 2 advisories need attention in demo-app',
+      'Patchhound: 2 advisories need attention in demo-app',
       'CRITICAL GHSA-xqc2-xf4c-x3h3 (worse since last time) in react-server-dom-turbopack@19.3.0, react-server-dom-webpack@19.3.0: Remote Code Execution in React Server Components <script>',
       '    reachable: yes; Claude: the app router renders server components.',
       '    why: critical (CVSS 9 or more) in production code: always notifies, whatever triage says; fix: wait for a new version of the package that bundles it',
@@ -49,7 +49,7 @@ describe('digestMessage', () => {
       item({ advisory: 'B', rule: 'not-reachable', severity: 'HIGH', change: 'digest' }),
     ]);
     expect(message.text.split('\n').slice(0, 3)).toEqual([
-      'Bulwark weekly digest for demo-app: 2 findings below the bar for an alert',
+      'Patchhound weekly digest for demo-app: 2 findings below the bar for an alert',
       '1 triage found the vulnerable code unreachable; 1 dev-only in the lockfile',
       'HIGH B in react-server-dom-webpack@19.3.0: Remote Code Execution in React Server Components <script>',
     ]);

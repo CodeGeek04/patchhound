@@ -1,13 +1,13 @@
-# Running Bulwark as a GitHub Action
+# Running Patchhound as a GitHub Action
 
-Add one workflow to a repo, and Bulwark scans it on a schedule, alerts on what your code exposes, and keeps one pull request open that fixes what it can.
+Add one workflow to a repo, and Patchhound scans it on a schedule, alerts on what your code exposes, and keeps one pull request open that fixes what it can.
 
 ## Quick start
 
 You need Node 20 or later, git, the GitHub CLI signed in as an owner or admin of the repo (`gh auth login`), and Claude Code for the Claude token (or an Anthropic API key: add `--api-key`). In your repo's folder:
 
 ```
-npx bulwark init
+npx patchhound init
 ```
 
 `init` asks whether the repo deploys on Vercel, stores the Claude token as a repo secret (gh asks for it and does not show it), lets GitHub Actions open pull requests, and opens a pull request that adds the workflow below. Your checkout is not touched. Merge the pull request and the first run starts.
@@ -18,19 +18,19 @@ The rest of this page is what `init` sets up, for doing it by hand or changing i
 
 The workflow has three jobs, each holding only what it needs. A fix runs your project's installs, install scripts and tests, and a coding agent: code you do not fully control. So the job that does it holds no write access and no secret but Claude's sign-in, and hands each pull request off as a git bundle. A separate job, which runs nothing from your project, checks each bundle and pushes it.
 
-`.github/workflows/bulwark.yml`:
+`.github/workflows/patchhound.yml`:
 
 ```yaml
-name: bulwark
+name: patchhound
 on:
   schedule:
     - cron: "17 */4 * * *"   # every 4 hours
   workflow_dispatch:          # "Run workflow" in the Actions tab starts one any time
   push:                       # and the first one starts when this file is merged
     branches: [main]
-    paths: [.github/workflows/bulwark.yml]
+    paths: [.github/workflows/patchhound.yml]
 
-concurrency: bulwark
+concurrency: patchhound
 
 jobs:
   scan:                       # alerts; never runs your project's code
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: CodeGeek04/bulwark@v0
+      - uses: CodeGeek04/patchhound@v0
         with:
           mode: scan
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false   # keeps the token out of .git/config, where installs and tests could read it
-      - uses: CodeGeek04/bulwark@v0
+      - uses: CodeGeek04/patchhound@v0
         with:
           mode: fix
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -75,14 +75,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: CodeGeek04/bulwark@v0
+      - uses: CodeGeek04/patchhound@v0
         with:
           mode: publish
 ```
 
 `publish` runs even when `fix` fails, so that a malware PR is still pushed when the fix step goes red because a malicious package is left.
 
-Each job writes its report (what it found, fixed, kept out, and the PR) to the run's **Summary** page in the Actions tab; the job logs hold the details. Lines starting with `bulwark:` in the `fix` log show its progress while it runs.
+Each job writes its report (what it found, fixed, kept out, and the PR) to the run's **Summary** page in the Actions tab; the job logs hold the details. Lines starting with `patchhound:` in the `fix` log show its progress while it runs.
 
 ## 2. The secrets
 
@@ -98,16 +98,16 @@ Then, in the repo's Settings > Actions > General > Workflow permissions, tick **
 
 ## 3. Settings
 
-Optional: `bulwark init` writes a `.bulwark.yml` with every setting and its default: the alert threshold, the repo's exposure, which findings Claude checks, the checks a fix must pass (`fix.checks`, detected from the build, typecheck and test scripts when empty), what runs after each install before the checks (`fix.setup`, `prisma generate` when the project uses Prisma), and the most Claude Code may spend on one run (`fix.budget_usd`, $10 by default).
+Optional: `patchhound init` writes a `.patchhound.yml` with every setting and its default: the alert threshold, the repo's exposure, which findings Claude checks, the checks a fix must pass (`fix.checks`, detected from the build, typecheck and test scripts when empty), what runs after each install before the checks (`fix.setup`, `prisma generate` when the project uses Prisma), and the most Claude Code may spend on one run (`fix.budget_usd`, $10 by default).
 
-The checks run with the job's environment, minus Bulwark's and GitHub's tokens. If your build or code generation needs variables (a database URL that Prisma's config reads, say), set them in the workflow's `env`; placeholders are enough for a build that does not connect. Checks that fail before any change are not required, and with none passing, major upgrades stay out of the PR. The PR and the run's summary show why each of those failed. A build that reads a database (a page that queries it while pre-rendering) needs one: add a `postgres` service to the `fix` job, point the database variables at it, and set `fix.setup` to generate and migrate (`npx prisma generate`, `npx prisma migrate deploy`).
+The checks run with the job's environment, minus Patchhound's and GitHub's tokens. If your build or code generation needs variables (a database URL that Prisma's config reads, say), set them in the workflow's `env`; placeholders are enough for a build that does not connect. Checks that fail before any change are not required, and with none passing, major upgrades stay out of the PR. The PR and the run's summary show why each of those failed. A build that reads a database (a page that queries it while pre-rendering) needs one: add a `postgres` service to the `fix` job, point the database variables at it, and set `fix.setup` to generate and migrate (`npx prisma generate`, `npx prisma migrate deploy`).
 
-The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's previews only for commits by members of its team, so it skips such a PR: set `fix.commit_as: actor` to make the person GitHub names as the run's actor (who started it) the author. `github-actions[bot]` stays the committer, which is how Bulwark tells its own commits from a person's.
+The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's previews only for commits by members of its team, so it skips such a PR: set `fix.commit_as: actor` to make the person GitHub names as the run's actor (who started it) the author. `github-actions[bot]` stays the committer, which is how Patchhound tells its own commits from a person's.
 
 ## What a run does
 
 1. **Scan and triage** the lockfile and the code; alert on what is new or worse (once, then again only when it gets worse); a weekly digest of the rest.
-2. **Fix** what triage would open a PR for, on the branch `bulwark/fixes`:
+2. **Fix** what triage would open a PR for, on the branch `patchhound/fixes`:
    - skips the whole step when the open PR already covers the same findings, so a scheduled run pays for a fix once (`fix --force` on the command line redoes it);
    - installs the project and runs its build, type check and tests first, so that only checks that already pass count;
    - applies the safe changes (lockfile refreshes, patch and minor bumps, scoped overrides), then plans again for any advisory the new versions bring, and runs the checks;
@@ -116,9 +116,9 @@ The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's
    - one Claude Code session for the whole repo then adapts the code to those, within the budget (at most one session per step, so two per run). It may undo a single upgrade it cannot make work, and the PR says which and why;
    - a change that still breaks a check is left out, and the PR lists the findings it would have fixed and why they wait;
    - hands the result to the publish job, which checks it and opens the PR, or updates the one already open, with every advisory, why it matters, what changed and the checks before and after. The PR only ever holds changes that pass every check that passed before.
-3. A malicious package gets a PR of its own, `bulwark/fixes-malware`, at once.
+3. A malicious package gets a PR of its own, `patchhound/fixes-malware`, at once.
 
-Nothing is ever merged by Bulwark in this version.
+Nothing is ever merged by Patchhound in this version.
 
 The fix step fails (a red run) when it needs a person: a malicious package is still in the lockfile, or the project does not install as it is. A run that keeps nothing, because every change broke a check, is not a failure; the next run tries again when there are new findings, or a day later on a new commit. The publish job fails when it refuses a bundle.
 
@@ -126,14 +126,14 @@ The fix step fails (a red run) when it needs a person: a malicious package is st
 
 - Install, build or test a commit that has a known malicious package: the malware PR is made with lockfile changes only, and every install first checks that no malicious version came in.
 - Give your project's code a secret it does not need: the job that installs, tests and runs Claude Code holds Claude's sign-in and a read-only GitHub token, and nothing else (the alert secrets stay in `scan`, the write token in `publish`). Within that job, installs, scripts, checks and Claude Code's tools also run without those tokens in their environment.
-- Push what it did not check: `publish` takes only commits Bulwark made, on the base they declare, and refuses one that changes `.github/` or Bulwark's config (a malware PR: anything but manifests and lockfiles).
-- Push anywhere but `bulwark/fixes` (and `-malware`) in this repository, or over commits someone else pushed there: such a branch is left alone, and the run says so.
-- Let Claude Code change `.github/` or Bulwark's own config (such edits are put back) or use web tools. It is allowed file tools, read-only git, your checks and the package manager's install, update, remove and run commands (not `npx`, `exec` or `dlx`). That narrows what it reaches for; it is not a sandbox: it can edit and run your project's scripts, as any change to the code could.
+- Push what it did not check: `publish` takes only commits Patchhound made, on the base they declare, and refuses one that changes `.github/` or Patchhound's config (a malware PR: anything but manifests and lockfiles).
+- Push anywhere but `patchhound/fixes` (and `-malware`) in this repository, or over commits someone else pushed there: such a branch is left alone, and the run says so.
+- Let Claude Code change `.github/` or Patchhound's own config (such edits are put back) or use web tools. It is allowed file tools, read-only git, your checks and the package manager's install, update, remove and run commands (not `npx`, `exec` or `dlx`). That narrows what it reaches for; it is not a sandbox: it can edit and run your project's scripts, as any change to the code could.
 - Merge anything.
 
 ## What GitHub does
 
-- A PR opened with the workflow's own `GITHUB_TOKEN` does not start other workflows, so your CI does not run on it until someone pushes to it or reopens it. Bulwark runs your checks itself and lists the result in the PR. To have CI run too, pass a personal access token or a GitHub App token as `github-token`: Bulwark pushes and opens the PR with it.
+- A PR opened with the workflow's own `GITHUB_TOKEN` does not start other workflows, so your CI does not run on it until someone pushes to it or reopens it. Patchhound runs your checks itself and lists the result in the PR. To have CI run too, pass a personal access token or a GitHub App token as `github-token`: Patchhound pushes and opens the PR with it.
 - Scheduled workflows stop after 60 days without activity in the repo; GitHub sends an email first.
 - Caches: your project's code runs in the fix job with the runner's own rights, so a determined dependency could still write a cache entry under any key. The scan job reading only scan caches keeps an honest mistake or a simple attack out of it; it is not a hard boundary. Upgrading to this version starts the caches afresh, so the first run alerts, triages and fixes again once.
 - Private repos get a monthly allowance of Actions minutes (2,000 on GitHub Free), and every job counts at least one minute. A run is three jobs: about 3 to 5 minutes when nothing is new, 10 to 30 when it fixes something. Every 4 hours is about 180 runs a month per repo; spread it out further (once a day: `17 3 * * *`) when several private repos share the allowance. Public repos run free.

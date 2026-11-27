@@ -10,7 +10,7 @@ type Override = Extract<FixStep, { kind: 'override' }>;
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'bulwark-manifest-'));
+  dir = await mkdtemp(join(tmpdir(), 'patchhound-manifest-'));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });

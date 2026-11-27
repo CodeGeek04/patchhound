@@ -10,10 +10,10 @@ import { WORKFLOW_PATH, workflowFile } from '../../src/setup/workflow.js';
 
 const ok = (output = ''): ToolResult => ({ code: 0, timedOut: false, output });
 const fail = (output: string): ToolResult => ({ code: 1, timedOut: false, output });
-const ACTION = 'acme/bulwark@main';
+const ACTION = 'acme/patchhound@main';
 const repo = { owner: 'o', name: 'r' };
 
-describe('bulwark init', () => {
+describe('patchhound init', () => {
   let root: string;
   let origin: string;
   let checkout: string;
@@ -48,7 +48,7 @@ describe('bulwark init', () => {
     ...overrides,
   });
 
-  const show = (path: string) => git(origin, ['show', `bulwark/setup:${path}`]);
+  const show = (path: string) => git(origin, ['show', `patchhound/setup:${path}`]);
 
   beforeEach(async () => {
     calls = [];
@@ -57,7 +57,7 @@ describe('bulwark init', () => {
     secrets = '';
     workflowSettings = ok('{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}');
     putResult = ok();
-    root = await mkdtemp(join(tmpdir(), 'bulwark-init-'));
+    root = await mkdtemp(join(tmpdir(), 'patchhound-init-'));
     origin = join(root, 'origin.git');
     checkout = join(root, 'app');
     await git(root, ['init', '-q', '--bare', '-b', 'main', origin]);
@@ -80,10 +80,10 @@ describe('bulwark init', () => {
     const head = await git(checkout, ['rev-parse', 'HEAD']);
     const result = await init({ dir: checkout, action: ACTION, repo }, io());
 
-    expect(result).toEqual({ repo: 'o/r', pr: 'https://github.com/o/r/pull/7', files: [WORKFLOW_PATH, '.bulwark.yml'], secret: 'set', pullRequests: 'turned on' });
+    expect(result).toEqual({ repo: 'o/r', pr: 'https://github.com/o/r/pull/7', files: [WORKFLOW_PATH, '.patchhound.yml'], secret: 'set', pullRequests: 'turned on' });
     expect(await show(WORKFLOW_PATH)).toBe(workflowFile({ action: ACTION, base: 'main' }).trimEnd());
-    expect(await show('.bulwark.yml')).toContain('commit_as: actor');
-    expect(await git(origin, ['log', '-1', '--format=%s|%ae', 'bulwark/setup'])).toBe('Add Bulwark|dev@example.com');
+    expect(await show('.patchhound.yml')).toContain('commit_as: actor');
+    expect(await git(origin, ['log', '-1', '--format=%s|%ae', 'patchhound/setup'])).toBe('Add Patchhound|dev@example.com');
     // The person's own checkout: same commit, same files, nothing added.
     expect(await git(checkout, ['rev-parse', 'HEAD'])).toBe(head);
     expect(await git(checkout, ['status', '--porcelain'])).toBe('?? work-in-progress.txt');
@@ -94,11 +94,11 @@ describe('bulwark init', () => {
     // The default workflow permissions stay as they were.
     expect(calls).toContainEqual(['gh', 'api', '-X', 'PUT', 'repos/o/r/actions/permissions/workflow', '-f', 'default_workflow_permissions=read', '-F', 'can_approve_pull_request_reviews=true']);
     const create = calls.find((c) => c[1] === 'pr')!;
-    expect(create.slice(0, 10)).toEqual(['gh', 'pr', 'create', '--repo', 'o/r', '--base', 'main', '--head', 'bulwark/setup', '--title']);
+    expect(create.slice(0, 10)).toEqual(['gh', 'pr', 'create', '--repo', 'o/r', '--base', 'main', '--head', 'patchhound/setup', '--title']);
     expect(create.at(-1)).toContain('Vercel builds the PR');
   });
 
-  it('skips what is already done: the secret, the setting, and no .bulwark.yml off Vercel', async () => {
+  it('skips what is already done: the secret, the setting, and no .patchhound.yml off Vercel', async () => {
     secrets = 'OTHER\nCLAUDE_CODE_OAUTH_TOKEN\n';
     workflowSettings = ok('{"default_workflow_permissions":"write","can_approve_pull_request_reviews":true}');
     const result = await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
@@ -141,23 +141,23 @@ describe('bulwark init', () => {
     const result = await init({ dir: checkout, action: ACTION, repo, vercel: true, pr: false }, io());
     expect(result.pr).toBeNull();
     expect(await readFile(join(checkout, WORKFLOW_PATH), 'utf8')).toBe(workflowFile({ action: ACTION, base: 'main' }));
-    expect(await readFile(join(checkout, '.bulwark.yml'), 'utf8')).toContain('commit_as: actor');
+    expect(await readFile(join(checkout, '.patchhound.yml'), 'utf8')).toContain('commit_as: actor');
     expect(calls.some((c) => c[1] === 'pr')).toBe(false);
   });
 });
 
 describe('the workflow file', () => {
   it('runs the given Action in all three jobs, and starts once it lands on the default branch', () => {
-    const text = workflowFile({ action: 'acme/bulwark@v1', base: 'trunk' });
-    expect(text.match(/uses: acme\/bulwark@v1/g)).toHaveLength(3);
-    expect(text).toContain('    branches: [trunk]\n    paths: [.github/workflows/bulwark.yml]');
+    const text = workflowFile({ action: 'acme/patchhound@v1', base: 'trunk' });
+    expect(text.match(/uses: acme\/patchhound@v1/g)).toHaveLength(3);
+    expect(text).toContain('    branches: [trunk]\n    paths: [.github/workflows/patchhound.yml]');
     expect(text).toContain('cron: "17 */4 * * *"   # every 4 hours');
     expect(workflowFile({ action: 'a/b@v1', base: 'main', schedule: '0 3 * * *' })).toContain('cron: "0 3 * * *"\n');
   });
 
   it('is the one the docs show', async () => {
     const docs = await readFile(join(import.meta.dirname, '..', '..', 'docs', 'github-action.md'), 'utf8');
-    const shown = /`\.github\/workflows\/bulwark\.yml`:\n\n```yaml\n([\s\S]*?)```/.exec(docs)?.[1];
-    expect(shown).toBe(workflowFile({ action: 'CodeGeek04/bulwark@v0', base: 'main' }));
+    const shown = /`\.github\/workflows\/patchhound\.yml`:\n\n```yaml\n([\s\S]*?)```/.exec(docs)?.[1];
+    expect(shown).toBe(workflowFile({ action: 'CodeGeek04/patchhound@v0', base: 'main' }));
   });
 });

@@ -27,7 +27,7 @@ export interface CheckOptions {
 }
 
 /**
- * `bulwark check <id or link>`. For an advisory id: what the audit log says, or else a scan now,
+ * `patchhound check <id or link>`. For an advisory id: what the audit log says, or else a scan now,
  * and if the project is not affected, why. For a link: the ids and packages the page names (Claude
  * reads the page when it is set up, otherwise only ids are found), each checked against the project.
  * A link only ever reports; it never drives tiers 2 or 3 (spec, "Safety and guardrails").
@@ -38,8 +38,8 @@ export async function check(target: string, options: CheckOptions): Promise<stri
 }
 
 async function checkId(id: string, options: CheckOptions): Promise<string> {
-  const records = await readAllAudit(join(options.dir, '.bulwark'));
-  if (recordsFor(records, id).length > 0) return `${formatExplain(records, id)}\n\n(from the audit log; run bulwark scan for a fresh look)`;
+  const records = await readAllAudit(join(options.dir, '.patchhound'));
+  if (recordsFor(records, id).length > 0) return `${formatExplain(records, id)}\n\n(from the audit log; run patchhound scan for a fresh look)`;
   const { result, assessment } = await options.scanAndAssess();
   const matches = assessment.findings.filter((a) => {
     const f = result.findings.find((x) => x.key === a.key)!;

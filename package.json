@@ -1,6 +1,6 @@
 {
-  "name": "bulwark",
-  "version": "0.1.0",
+  "name": "patchhound",
+  "version": "0.1.1",
   "description": "Watches your npm dependencies for advisories, alerts on the ones your code exposes, and opens a pull request that fixes them.",
   "keywords": [
     "security",
@@ -15,15 +15,15 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CodeGeek04/bulwark.git"
+    "url": "git+https://github.com/CodeGeek04/patchhound.git"
   },
-  "homepage": "https://github.com/CodeGeek04/bulwark#readme",
+  "homepage": "https://github.com/CodeGeek04/patchhound#readme",
   "bugs": {
-    "url": "https://github.com/CodeGeek04/bulwark/issues"
+    "url": "https://github.com/CodeGeek04/patchhound/issues"
   },
   "type": "module",
   "bin": {
-    "bulwark": "bin/bulwark.mjs"
+    "patchhound": "bin/patchhound.mjs"
   },
   "files": [
     "bin",

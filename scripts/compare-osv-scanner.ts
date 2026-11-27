@@ -62,7 +62,7 @@ const missed = [...theirKeys].filter((key) => !covered.has(key)).sort();
 const extra = [...ourKeys].filter((key) => !theirKeys.has(key)).sort();
 
 console.log(
-  `${ours.project}: osv-scanner ${theirKeys.size}, bulwark ${ourKeys.size}, missed ${missed.length}, extra ${extra.length}` +
+  `${ours.project}: osv-scanner ${theirKeys.size}, patchhound ${ourKeys.size}, missed ${missed.length}, extra ${extra.length}` +
     (workspaceKeys.length > 0 ? ` (${workspaceKeys.length} osv-scanner matches on yarn workspaces left out)` : '') +
     (bundledKeys.length > 0 ? `; ${bundledKeys.length} more inside next, which osv-scanner cannot see` : ''),
 );

@@ -49,7 +49,7 @@ if (runs.length === 0) {
   process.exit(0);
 }
 
-const work = await mkdtemp(join(tmpdir(), 'bulwark-verify-'));
+const work = await mkdtemp(join(tmpdir(), 'patchhound-verify-'));
 try {
   await copyProject(dir, work, basename(before.lockfile));
   const id = (f: { package: string; version: string }) => `${f.package}@${f.version}`;

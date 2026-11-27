@@ -23,7 +23,7 @@ const LODASH_BUMP = { kind: 'bump', package: 'lodash', from: '4.17.20', to: '4.1
 let dir: string;
 beforeEach(async () => {
   // A temp copy, so state files never land in the fixtures.
-  dir = await mkdtemp(join(tmpdir(), 'bulwark-scan-'));
+  dir = await mkdtemp(join(tmpdir(), 'patchhound-scan-'));
   await copyFile(fileURLToPath(new URL('./fixtures/npm-app/package-lock.json', import.meta.url)), join(dir, 'package-lock.json'));
 });
 
@@ -91,7 +91,7 @@ describe('scan', () => {
   it('does not write state on a dry run', async () => {
     const { fetch } = routes();
     await scan({ dir, fetch, now: NOW, dryRun: true });
-    await expect(access(join(dir, '.bulwark', 'state.json'))).rejects.toThrow();
+    await expect(access(join(dir, '.patchhound', 'state.json'))).rejects.toThrow();
     const again = await scan({ dir, fetch, now: NOW, dryRun: true });
     expect(again.findings[0]?.status).toBe('new');
   });
@@ -148,8 +148,8 @@ describe('scan', () => {
   });
 
   it('stops before asking OSV when the state file cannot be read', async () => {
-    await mkdir(join(dir, '.bulwark'));
-    await writeFile(join(dir, '.bulwark', 'state.json'), JSON.stringify({ version: 1, findings: {} }));
+    await mkdir(join(dir, '.patchhound'));
+    await writeFile(join(dir, '.patchhound', 'state.json'), JSON.stringify({ version: 1, findings: {} }));
     const fake = routes();
     await expect(scan({ dir, fetch: fake.fetch, now: NOW })).rejects.toThrow(/state\.json has version 1/);
     expect(fake.calls).toEqual([]);
@@ -177,7 +177,7 @@ describe('scan', () => {
 
   it('makes the default state folder ignore itself, but only the default one', async () => {
     await scan({ dir, fetch: routes().fetch, now: NOW });
-    expect(await readFile(join(dir, '.bulwark', '.gitignore'), 'utf8')).toBe('*\n');
+    expect(await readFile(join(dir, '.patchhound', '.gitignore'), 'utf8')).toBe('*\n');
 
     const other = join(dir, 'custom');
     await scan({ dir, fetch: routes().fetch, now: NOW, statePath: join(other, 'state.json') });
@@ -187,12 +187,12 @@ describe('scan', () => {
 
   it('creates nothing on a dry run', async () => {
     await scan({ dir, fetch: routes().fetch, now: NOW, dryRun: true });
-    await expect(access(join(dir, '.bulwark'))).rejects.toThrow();
+    await expect(access(join(dir, '.patchhound'))).rejects.toThrow();
   });
 
   it('reports the alias key when the state already has the finding under one', async () => {
     await scan({ dir, fetch: routes().fetch, now: NOW });
-    const statePath = join(dir, '.bulwark', 'state.json');
+    const statePath = join(dir, '.patchhound', 'state.json');
     const saved = JSON.parse(await readFile(statePath, 'utf8'));
     const alias = 'CVE-2021-23337|lodash@4.17.20';
     saved.findings = { [alias]: saved.findings['GHSA-35jh-r3h4-6jhm|lodash@4.17.20'] };
@@ -202,7 +202,7 @@ describe('scan', () => {
   });
 
   it('passes on what the lockfile parser could not check', async () => {
-    const pnpmDir = await mkdtemp(join(tmpdir(), 'bulwark-scan-'));
+    const pnpmDir = await mkdtemp(join(tmpdir(), 'patchhound-scan-'));
     await copyFile(fileURLToPath(new URL('./fixtures/next-app-pnpm/pnpm-lock.yaml', import.meta.url)), join(pnpmDir, 'pnpm-lock.yaml'));
     const { fetch } = fakeFetch(osvRoutes({}, []));
     const result = await scan({ dir: pnpmDir, fetch, now: NOW, dryRun: true });
@@ -277,7 +277,7 @@ describe('scan fix plan', () => {
   });
 
   it('records the workspace folders besides the root', async () => {
-    const workspace = await mkdtemp(join(tmpdir(), 'bulwark-scan-'));
+    const workspace = await mkdtemp(join(tmpdir(), 'patchhound-scan-'));
     await copyFile(fileURLToPath(new URL('./fixtures/pnpm-workspace/pnpm-lock.yaml', import.meta.url)), join(workspace, 'pnpm-lock.yaml'));
     const result = await scan({ dir: workspace, fetch: fakeFetch(osvRoutes({}, [])).fetch, now: NOW, dryRun: true });
     expect(result.workspaces).toEqual(['apps/web', 'packages/ui']);
@@ -293,7 +293,7 @@ describe('scan fix plan', () => {
   });
 
   it("checks the React build next bundles, and says which one it checked", async () => {
-    const nextApp = await mkdtemp(join(tmpdir(), 'bulwark-scan-'));
+    const nextApp = await mkdtemp(join(tmpdir(), 'patchhound-scan-'));
     await copyFile(fileURLToPath(new URL('./fixtures/next-app-npm/package-lock.json', import.meta.url)), join(nextApp, 'package-lock.json'));
     const rsc: OsvVuln = {
       id: 'GHSA-rsc',

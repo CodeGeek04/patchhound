@@ -1,4 +1,4 @@
-/** What the workflow `bulwark init` writes depends on. */
+/** What the workflow `patchhound init` writes depends on. */
 export interface WorkflowOptions {
   /** The Action to run: `owner/repo@ref`. */
   action: string;
@@ -10,7 +10,7 @@ export interface WorkflowOptions {
   schedule?: string;
 }
 
-export const WORKFLOW_PATH = '.github/workflows/bulwark.yml';
+export const WORKFLOW_PATH = '.github/workflows/patchhound.yml';
 export const DEFAULT_SCHEDULE = '17 */4 * * *';
 
 /**
@@ -24,7 +24,7 @@ export function workflowFile(options: WorkflowOptions): string {
   const claude = options.apiKey
     ? 'anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}'
     : 'claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}';
-  return `name: bulwark
+  return `name: patchhound
 on:
   schedule:
     - cron: "${schedule}"${schedule === DEFAULT_SCHEDULE ? '   # every 4 hours' : ''}
@@ -33,7 +33,7 @@ on:
     branches: [${options.base}]
     paths: [${WORKFLOW_PATH}]
 
-concurrency: bulwark
+concurrency: patchhound
 
 jobs:
   scan:                       # alerts; never runs your project's code
