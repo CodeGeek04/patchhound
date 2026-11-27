@@ -337,17 +337,27 @@ program
       pr: options.pr,
       force: options.force ?? false,
     });
-    const secret = { present: 'already set', set: 'stored', 'not set': 'NOT set (see above)' }[result.secret];
-    const prs = { on: 'already allowed', 'turned on': 'turned on', 'not on': 'NOT allowed (see above)' }[result.pullRequests];
+    const secret = (state: string) => ({ present: 'already set', set: 'stored', 'not set': 'NOT set (see above)', skipped: 'skipped (see above)' })[state];
+    const setting = (state: string) => ({ on: 'already on', 'turned on': 'turned on', 'not on': 'NOT on (see above)' })[state];
+    const next = result.merged
+      ? 'The first run has started: Actions tab, patchhound.'
+      : result.pr
+        ? `Merge ${result.pr} and the first run starts (Actions tab, patchhound).`
+        : result.files.length > 0
+          ? 'Commit the files to the default branch and the first run starts.'
+          : 'Start a run any time: Actions tab, patchhound, Run workflow.';
     process.stdout.write(
       [
         '',
         `Patchhound is set up for ${result.repo}:`,
-        `  files: ${result.files.join(', ')}${result.pr ? ` in ${result.pr}` : ''}`,
+        result.files.length > 0 ? `  files: ${result.files.join(', ')}${result.pr ? ` in ${result.pr}${result.merged ? ' (merged)' : ''}` : ''}` : '  files: already in the repo',
         `  Action: ${action}`,
-        `  Claude secret: ${secret}`,
-        `  Actions opening pull requests: ${prs}`,
-        result.pr ? 'Merge that PR and the first run starts (Actions tab, patchhound).' : 'Commit the files to the default branch and the first run starts.',
+        `  Claude secret: ${secret(result.secrets.claude)}`,
+        `  Jev key: ${secret(result.secrets.jev)}`,
+        `  Slack alerts: ${secret(result.secrets.slack)}`,
+        `  GitHub Actions: ${setting(result.actions)}`,
+        `  Actions may open pull requests: ${setting(result.pullRequests)}`,
+        next,
         '',
       ].join('\n'),
     );

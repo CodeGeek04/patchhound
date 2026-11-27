@@ -4,13 +4,19 @@ Add one workflow to a repo, and Patchhound scans it on a schedule, alerts on wha
 
 ## Quick start
 
-You need Node 20 or later, git, the GitHub CLI signed in as an owner or admin of the repo (`gh auth login`), and Claude Code for the Claude token (or an Anthropic API key: add `--api-key`). In your repo's folder:
+You need Node 20 or later, git, the GitHub CLI signed in as an owner or admin of the repo (`gh auth login`), Claude Code for the Claude token (or an Anthropic API key: add `--api-key`), a Jev (TypeSafe) API key, and a Slack incoming webhook for alerts. In your repo's folder:
 
 ```
 npx patchhound init
 ```
 
-`init` asks whether the repo deploys on Vercel, stores the Claude token as a repo secret (gh asks for it and does not show it), lets GitHub Actions open pull requests, and opens a pull request that adds the workflow below. Your checkout is not touched. Merge the pull request and the first run starts.
+`init` does all of the setup below:
+- stores the Claude token, the Jev key and the Slack webhook as repo secrets (gh asks for each and does not show it);
+- writes the workflow, and a `.patchhound.yml` that turns Slack alerts on (and, for a repo that deploys on Vercel, makes the person who starts a run the author of the fix commits);
+- turns GitHub Actions on if it is off, says what to allow if the repo limits which actions may run, and lets Actions open pull requests;
+- opens a pull request with the files and offers to merge it, which starts the first run.
+
+Your checkout is not touched. Run it again at any time: it does only what is still missing, and updates its own pull request if that is still open.
 
 The rest of this page is what `init` sets up, for doing it by hand or changing it.
 
@@ -89,10 +95,19 @@ Each job writes its report (what it found, fixed, kept out, and the PR) to the r
 | Secret | Needed for | How to get it |
 | --- | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Triage and the coding agent, on your Claude subscription | Run `claude setup-token` and paste what it prints. Or set `anthropic-api-key` with an API key instead. |
-| `TYPESAFE_API_KEY` | Jev, the fast first pass of triage (optional) | console.typesafe.ai |
-| `SLACK_WEBHOOK_URL` | Alerts (optional; without it they are printed in the run's log) | A Slack incoming webhook |
+| `TYPESAFE_API_KEY` | Jev answers most triage questions first, faster and cheaper than Claude, which then judges only what Jev is unsure of. Without it, Claude judges every finding. | console.typesafe.ai |
+| `SLACK_WEBHOOK_URL` | Alerts. Slack also needs `.patchhound.yml` to list it and turn dry run off (below); without a channel, alerts only show on each run's Summary page. | A Slack incoming webhook (api.slack.com/messaging/webhooks) |
 
 `gh secret set CLAUDE_CODE_OAUTH_TOKEN` (and the others) from the repo's folder asks for the value, so it is never typed on the command line or pasted into a web page.
+
+For Slack, `.patchhound.yml` at the repo root:
+
+```yaml
+dry_run: false
+notify:
+  channels:
+    - type: slack
+```
 
 Then, in the repo's Settings > Actions > General > Workflow permissions, tick **Allow GitHub Actions to create and approve pull requests**: without it, `publish` cannot open the PR. In an organization, an owner may have to allow it for the organization first.
 

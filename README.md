@@ -9,6 +9,8 @@ You need:
 - Node.js 20 or later, and git
 - the GitHub CLI, signed in as an owner or admin of the repo: `gh auth login`
 - a Claude subscription with [Claude Code](https://claude.com/claude-code) installed, or an Anthropic API key
+- a Jev API key from [TypeSafe](https://console.typesafe.ai): Jev answers most triage questions faster and cheaper than Claude, which then judges only what Jev is unsure of
+- a Slack incoming webhook, for alerts ([how to make one](https://api.slack.com/messaging/webhooks))
 
 Then, in your repo's folder:
 
@@ -18,11 +20,12 @@ npx patchhound init
 
 1. It asks whether the repo deploys on Vercel. Answer yes if it does: Vercel builds a private repo's previews only for its team members' commits, so Patchhound then makes you the author of its fix commits.
 2. It offers to make a Claude token with `claude setup-token`. Sign in in the browser, copy the token it prints, and paste it at the next prompt. It is stored as the repo secret `CLAUDE_CODE_OAUTH_TOKEN` and never shown. To use an API key instead: `npx patchhound init --api-key`.
-3. It opens a pull request named **Add Patchhound**. Merge it.
+3. It asks for the Jev key, then the Slack webhook, and stores each as a repo secret the same hidden way. Slack alerts are switched on in the repo's `.patchhound.yml`.
+4. It turns on what GitHub needs (Actions, and Actions opening pull requests), opens a pull request named **Add Patchhound**, and offers to merge it. Say yes.
 
-Merging starts the first run, and it runs every 4 hours after that. Watch it in the repo's **Actions** tab, under **patchhound**: each run's **Summary** page says what it found, what it fixed and why anything was left out. When it can fix something, a pull request from the branch `patchhound/fixes` appears. Review it and merge it like any other.
+That is the whole setup. Merging starts the first run, and it runs every 4 hours after that. Watch it in the repo's **Actions** tab, under **patchhound**: each run's **Summary** page says what it found, what it fixed and why anything was left out. When it can fix something, a pull request from the branch `patchhound/fixes` appears. Review it and merge it like any other.
 
-`init` does not touch your checkout: it makes the pull request from a fresh copy of your default branch.
+`init` does not touch your checkout: it makes the pull request from a fresh copy of your default branch. Run it again any time: it does only what is still missing.
 
 ## What a run does
 
