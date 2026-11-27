@@ -1,0 +1,81 @@
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.4.5
+
+  apps/web:
+    dependencies:
+      '@demo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      next:
+        specifier: 15.2.2
+        version: 15.2.2(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      react:
+        specifier: 19.0.0
+        version: 19.0.0
+      react-dom:
+        specifier: 19.0.0
+        version: 19.0.0(react@19.0.0)
+
+  packages/ui:
+    dependencies:
+      old-lodash:
+        specifier: npm:lodash@3.10.1
+        version: lodash@3.10.1
+
+packages:
+
+  '@next/env@15.2.2':
+    resolution: {integrity: sha512-placeholder}
+
+  lodash@3.10.1:
+    resolution: {integrity: sha512-placeholder}
+
+  next@15.2.2:
+    resolution: {integrity: sha512-placeholder}
+    peerDependencies:
+      react: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
+      react-dom: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
+
+  react-dom@19.0.0:
+    resolution: {integrity: sha512-placeholder}
+    peerDependencies:
+      react: ^19.0.0
+
+  react@19.0.0:
+    resolution: {integrity: sha512-placeholder}
+
+  scheduler@0.25.0:
+    resolution: {integrity: sha512-placeholder}
+
+  typescript@5.4.5:
+    resolution: {integrity: sha512-placeholder}
+
+snapshots:
+
+  '@next/env@15.2.2': {}
+
+  lodash@3.10.1: {}
+
+  next@15.2.2(react-dom@19.0.0(react@19.0.0))(react@19.0.0):
+    dependencies:
+      '@next/env': 15.2.2
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+
+  react-dom@19.0.0(react@19.0.0):
+    dependencies:
+      react: 19.0.0
+      scheduler: 0.25.0
+
+  react@19.0.0: {}
+
+  scheduler@0.25.0: {}
+
+  typescript@5.4.5: {}

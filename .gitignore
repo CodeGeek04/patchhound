@@ -1,0 +1,11 @@
+node_modules
+dist/
+.bulwark/
+.env
+.env.*
+!.env.example
+# Eval labels name the advisories that affect private apps: never commit them.
+eval/local/
+
+# Internal plans and specs stay out of the public repo.
+docs/superpowers/

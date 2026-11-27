@@ -1,0 +1,14 @@
+{
+  "name": "yarn-classic-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "lodash": "4.17.20",
+    "old-lodash": "npm:lodash@3.10.1",
+    "axios": "1.12.2"
+  },
+  "devDependencies": {
+    "typescript": "5.4.5"
+  }
+}

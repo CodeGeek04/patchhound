@@ -1,0 +1,193 @@
+name: bulwark
+description: Finds vulnerable npm dependencies, alerts on the ones your code exposes, and opens a pull request that fixes them.
+branding:
+  icon: shield
+  color: red
+
+# Three jobs, each holding only what it needs (see docs/github-action.md):
+#   scan:    alerts. Holds the alert and triage secrets; never runs your project's code.
+#   fix:     installs, checks and Claude Code. Holds the Claude token and a read-only GitHub token;
+#            hands each PR off as a git bundle.
+#   publish: checks each bundle and pushes it. Holds the write token; runs nothing from your project.
+inputs:
+  mode:
+    description: "scan, fix or publish: one per job"
+    required: true
+  claude-code-oauth-token:
+    description: "scan and fix: Claude Code signs in with your Claude subscription: the token `claude setup-token` prints. Or use anthropic-api-key."
+    required: false
+  anthropic-api-key:
+    description: "scan and fix: an Anthropic API key, instead of claude-code-oauth-token."
+    required: false
+  typesafe-api-key:
+    description: "scan: TypeSafe key for Jev, the fast first pass of triage. Optional."
+    required: false
+  slack-webhook-url:
+    description: "scan: a Slack incoming webhook for alerts. Optional; without it alerts are printed in the log."
+    required: false
+  github-token:
+    description: "fix reads pull requests with it; publish pushes the branch and opens the pull request with it (contents: write, pull-requests: write)."
+    default: ${{ github.token }}
+  budget-usd:
+    description: "fix: most Claude Code may spend in one run (overrides fix.budget_usd)."
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Check the mode
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        case "$MODE" in scan|fix|publish) ;; *) echo "mode must be scan, fix or publish, not '$MODE'"; exit 1 ;; esac
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install bulwark
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        # Corepack runs the yarn or pnpm a project pins. A pnpm the workflow set up before this action
+        # (pnpm/action-setup) stays: corepack's shim would otherwise come first on the PATH. A pnpm
+        # project that pins none gets a pnpm of the major its lockfile format comes from (lockfile 9.0:
+        # pnpm 10), not corepack's newest, whose defaults (build script approvals) it was not made with.
+        if command -v pnpm >/dev/null; then
+          corepack enable yarn || true
+        elif [ "$MODE" = fix ] && [ -f pnpm-lock.yaml ] && ! grep -q '"packageManager" *: *"pnpm@' package.json 2>/dev/null; then
+          corepack enable yarn || true
+          format=$(sed -n "s/^lockfileVersion: *['\"]*\([0-9]*\).*/\1/p" pnpm-lock.yaml | head -1)
+          case "$format" in 5) major=7 ;; 6) major=8 ;; *) major=10 ;; esac
+          npm install -g "pnpm@$major" --no-audit --no-fund --loglevel=error
+        else
+          corepack enable || true
+        fi
+        npm ci --prefix "$GITHUB_ACTION_PATH" --no-audit --no-fund --loglevel=error
+        if [ "$MODE" != publish ] && [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] && ! command -v claude >/dev/null; then
+          npm install -g @anthropic-ai/claude-code --no-audit --no-fund --loglevel=error
+        fi
+
+    # Triage answers, the alert state and the fix history outlive the run: without them every run
+    # would ask, alert and fix again. The scan job and the fix job each keep a cache of their own. The
+    # fix job runs your project's code, so what it saves is the project's to forge: the scan job reads
+    # only scan caches (forged advisories, KEV catalog, triage answers or alert state could hide an
+    # alert). The publish job reads none.
+    - uses: actions/cache/restore@v4
+      if: inputs.mode == 'scan'
+      with:
+        path: |
+          ~/.cache/bulwark
+          .bulwark
+        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
+        restore-keys: bulwark-${{ runner.os }}-scan-
+
+    # The fix job's own cache holds its fix history (.bulwark/fix-audit.jsonl) and nothing
+    # else. Over it goes this run's scan cache, by its exact key: the fix job works from what the scan
+    # job saw, never from what an earlier fix job saved.
+    - uses: actions/cache/restore@v4
+      if: inputs.mode == 'fix'
+      with:
+        path: .bulwark/fix-audit.jsonl
+        key: bulwark-${{ runner.os }}-fix-${{ github.run_id }}
+        restore-keys: bulwark-${{ runner.os }}-fix-
+
+    - uses: actions/cache/restore@v4
+      if: inputs.mode == 'fix'
+      with:
+        path: |
+          ~/.cache/bulwark
+          .bulwark
+        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
+
+    # Every bulwark command names bulwark's own tsconfig (--tsconfig, and
+    # TSX_TSCONFIG_PATH as a second guard). Otherwise tsx reads tsconfig.json from the working
+    # directory, the checkout, and applies its `paths` to bulwark's own imports: a tsconfig in
+    # the repo, or in a bundle the fix job forged, that maps `commander` to a file of its own would
+    # run that file in this job, with this job's tokens.
+    - name: Scan, triage and alert
+      if: inputs.mode == 'scan'
+      shell: bash
+      env:
+        TSX_TSCONFIG_PATH: ${{ github.action_path }}/tsconfig.json
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key }}
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+      # The report also goes to the run's Summary page, away from the install noise.
+      run: |
+        set +e
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" scan . | tee "$RUNNER_TEMP/bulwark-scan.txt"
+        status=${PIPESTATUS[0]}
+        { echo '### bulwark scan'; echo '```'; cat "$RUNNER_TEMP/bulwark-scan.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        exit $status
+
+    - name: Fix, and hand the pull requests to the publish job
+      if: inputs.mode == 'fix'
+      shell: bash
+      env:
+        TSX_TSCONFIG_PATH: ${{ github.action_path }}/tsconfig.json
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        BUDGET: ${{ inputs.budget-usd }}
+      run: |
+        # The fix log is all the fix job's cache holds; an empty one saves without a warning.
+        mkdir -p .bulwark && touch .bulwark/fix-audit.jsonl
+        set +e
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" fix . --in-place --handoff "$RUNNER_TEMP/bulwark-handoff" ${BUDGET:+--budget "$BUDGET"} | tee "$RUNNER_TEMP/bulwark-fix.txt"
+        status=${PIPESTATUS[0]}
+        { echo '### bulwark fix'; echo '```'; cat "$RUNNER_TEMP/bulwark-fix.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        exit $status
+
+    - uses: actions/upload-artifact@v4
+      if: always() && inputs.mode == 'fix'
+      with:
+        name: bulwark-handoff
+        path: ${{ runner.temp }}/bulwark-handoff
+        if-no-files-found: ignore
+        retention-days: 3
+
+    # Saved even when a step fails (a malicious package left fails the fix step), so the next run
+    # neither alerts nor triages again, nor redoes the same fix.
+    - uses: actions/cache/save@v4
+      if: always() && inputs.mode == 'scan'
+      with:
+        path: |
+          ~/.cache/bulwark
+          .bulwark
+        key: bulwark-${{ runner.os }}-scan-${{ github.run_id }}
+
+    - uses: actions/cache/save@v4
+      if: always() && inputs.mode == 'fix'
+      with:
+        path: .bulwark/fix-audit.jsonl
+        key: bulwark-${{ runner.os }}-fix-${{ github.run_id }}
+
+    - uses: actions/download-artifact@v4
+      if: inputs.mode == 'publish'
+      continue-on-error: true
+      with:
+        name: bulwark-handoff
+        path: ${{ runner.temp }}/bulwark-handoff
+
+    - name: Check the pull requests and push them
+      if: inputs.mode == 'publish'
+      shell: bash
+      env:
+        TSX_TSCONFIG_PATH: ${{ github.action_path }}/tsconfig.json
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        if [ ! -f "$RUNNER_TEMP/bulwark-handoff/handoff.json" ]; then
+          echo "bulwark: nothing to publish" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        set +e
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" publish "$RUNNER_TEMP/bulwark-handoff" . | tee "$RUNNER_TEMP/bulwark-publish.txt"
+        status=${PIPESTATUS[0]}
+        { echo '### bulwark publish'; echo '```'; cat "$RUNNER_TEMP/bulwark-publish.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        exit $status

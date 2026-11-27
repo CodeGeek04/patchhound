@@ -1,0 +1,5 @@
+catalog:
+  lodash: ^4.17.20
+catalogs:
+  old:
+    ms: ~2.0.0

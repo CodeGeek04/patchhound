@@ -1,0 +1,61 @@
+{
+  "name": "bulwark",
+  "version": "0.1.0",
+  "description": "Watches your npm dependencies for advisories, alerts on the ones your code exposes, and opens a pull request that fixes them.",
+  "keywords": [
+    "security",
+    "vulnerabilities",
+    "dependencies",
+    "npm",
+    "pnpm",
+    "github-action",
+    "pull-request",
+    "cve"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodeGeek04/bulwark.git"
+  },
+  "homepage": "https://github.com/CodeGeek04/bulwark#readme",
+  "bugs": {
+    "url": "https://github.com/CodeGeek04/bulwark/issues"
+  },
+  "type": "module",
+  "bin": {
+    "bulwark": "bin/bulwark.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run --dir tests",
+    "typecheck": "tsc --noEmit",
+    "cli": "tsx --env-file-if-exists=.env src/cli.ts",
+    "compare": "tsx scripts/compare-osv-scanner.ts",
+    "verify-plan": "tsx scripts/verify-fix-plan.ts",
+    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@babel/parser": "^7.29.14",
+    "commander": "^15.1.0",
+    "semver": "^7.8.6",
+    "tsx": "^4.23.15",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/semver": "^7.8.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}
