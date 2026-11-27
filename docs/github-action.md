@@ -43,11 +43,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      fix: ${{ steps.patchhound.outputs.fix }}   # false: nothing new to fix, so the next jobs are skipped
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: CodeGeek04/patchhound@v0
+      - id: patchhound
+        uses: CodeGeek04/patchhound@v0
         with:
           mode: scan
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -56,15 +59,19 @@ jobs:
 
   fix:                        # installs, checks and Claude Code; read-only
     needs: scan
+    if: needs.scan.outputs.fix != 'false' || github.event_name == 'workflow_dispatch'   # "Run workflow" always fixes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      handoff: ${{ steps.patchhound.outputs.handoff }}   # false: nothing to publish, so publish is skipped
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false   # keeps the token out of .git/config, where installs and tests could read it
-      - uses: CodeGeek04/patchhound@v0
+      - id: patchhound
+        uses: CodeGeek04/patchhound@v0
         with:
           mode: fix
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -72,7 +79,7 @@ jobs:
 
   publish:                    # checks each bundle and pushes it; runs nothing from your project
     needs: fix
-    if: always() && needs.fix.result != 'cancelled'
+    if: always() && (needs.fix.result == 'success' || needs.fix.result == 'failure') && needs.fix.outputs.handoff != 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: write          # push the fix branch
@@ -132,6 +139,7 @@ The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's
    - a change that still breaks a check is left out, and the PR lists the findings it would have fixed and why they wait;
    - hands the result to the publish job, which checks it and opens the PR, or updates the one already open, with every advisory, why it matters, what changed and the checks before and after. The PR only ever holds changes that pass every check that passed before.
 3. A malicious package gets a PR of its own, `patchhound/fixes-malware`, at once.
+4. When nothing a fix PR would cover has changed since the fix job last ran, the scan job tells the workflow to skip the fix and publish jobs, which saves their Actions minutes. They still run at least once a day while there is something to fix, and always when you start a run by hand.
 
 Nothing is ever merged by Patchhound in this version.
 
@@ -151,4 +159,4 @@ The fix step fails (a red run) when it needs a person: a malicious package is st
 - A PR opened with the workflow's own `GITHUB_TOKEN` does not start other workflows, so your CI does not run on it until someone pushes to it or reopens it. Patchhound runs your checks itself and lists the result in the PR. To have CI run too, pass a personal access token or a GitHub App token as `github-token`: Patchhound pushes and opens the PR with it.
 - Scheduled workflows stop after 60 days without activity in the repo; GitHub sends an email first.
 - Caches: your project's code runs in the fix job with the runner's own rights, so a determined dependency could still write a cache entry under any key. The scan job reading only scan caches keeps an honest mistake or a simple attack out of it; it is not a hard boundary. Upgrading to this version starts the caches afresh, so the first run alerts, triages and fixes again once.
-- Private repos get a monthly allowance of Actions minutes (2,000 on GitHub Free), and every job counts at least one minute. A run is three jobs: about 3 to 5 minutes when nothing is new, 10 to 30 when it fixes something. Every 4 hours is about 180 runs a month per repo; spread it out further (once a day: `17 3 * * *`) when several private repos share the allowance. Public repos run free.
+- Private repos get a monthly allowance of Actions minutes (2,000 on GitHub Free, shared by all of the account's private repos), and every job counts at least one minute. A run that finds nothing new is the scan job alone, about 1 to 2 minutes: the scan skips the fix and publish jobs when nothing a fix PR would cover has changed since the fix job last ran (they run at least once a day while there is something to fix, and always on "Run workflow"). A run that fixes something takes 10 to 30 minutes. Every 4 hours is about 180 runs a month per repo, roughly 200 to 500 minutes when little changes; spread it out further (once a day: `17 3 * * *`, or `npx patchhound init --schedule "17 3 * * *"`) when several private repos share the allowance. Public repos run free.

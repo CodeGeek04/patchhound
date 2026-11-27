@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 interface Step {
+  id?: string;
   name?: string;
   uses?: string;
   if?: string;
@@ -15,6 +16,17 @@ interface Step {
 const steps = async (): Promise<Step[]> => (parse(await readFile(fileURLToPath(new URL('../action.yml', import.meta.url)), 'utf8')) as { runs: { steps: Step[] } }).runs.steps;
 
 describe('action.yml', () => {
+  it('tells the workflow when the fix job has nothing new to do, and when there is nothing to publish', async () => {
+    const action = parse(await readFile(fileURLToPath(new URL('../action.yml', import.meta.url)), 'utf8')) as { outputs: Record<string, { value: string }>; runs: { steps: Step[] } };
+    expect(action.outputs.fix!.value).toBe('${{ steps.scan.outputs.fix }}');
+    expect(action.outputs.handoff!.value).toBe('${{ steps.fix.outputs.handoff }}');
+    const scan = action.runs.steps.find((step) => step.id === 'scan')!;
+    expect(scan.run).toContain('src/cli.ts" scan . --github-output');
+    const fix = action.runs.steps.find((step) => step.id === 'fix')!;
+    // Written before the step's own exit, so a red fix (a malicious package left) still publishes its PR.
+    expect(fix.run!.indexOf('>> "$GITHUB_OUTPUT"')).toBeLessThan(fix.run!.lastIndexOf('exit $status'));
+  });
+
   it("runs every patchhound command with patchhound's own tsconfig, never the checkout's", async () => {
     const tsx = (await steps()).filter((step) => step.run?.includes('node_modules/.bin/tsx'));
     expect(tsx.map((step) => step.name)).toHaveLength(3);

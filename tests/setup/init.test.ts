@@ -233,6 +233,16 @@ describe('the workflow file', () => {
     expect(workflowFile({ action: 'a/b@v1', base: 'main', schedule: '0 3 * * *' })).toContain('cron: "0 3 * * *"\n');
   });
 
+  it('skips the fix job when the scan says there is nothing new, and publish when there is nothing to publish', async () => {
+    const { parse } = await import('yaml');
+    const jobs = (parse(workflowFile({ action: 'a/b@v0', base: 'main' })) as { jobs: Record<string, { if?: string; outputs?: Record<string, string> }> }).jobs;
+    expect(jobs.scan!.outputs).toEqual({ fix: '${{ steps.patchhound.outputs.fix }}' });
+    // An Action without the output (an older version) gives '', which still runs the job; so does "Run workflow".
+    expect(jobs.fix!.if).toBe("needs.scan.outputs.fix != 'false' || github.event_name == 'workflow_dispatch'");
+    expect(jobs.fix!.outputs).toEqual({ handoff: '${{ steps.patchhound.outputs.handoff }}' });
+    expect(jobs.publish!.if).toBe("always() && (needs.fix.result == 'success' || needs.fix.result == 'failure') && needs.fix.outputs.handoff != 'false'");
+  });
+
   it('is the one the docs show', async () => {
     const docs = await readFile(join(import.meta.dirname, '..', '..', 'docs', 'github-action.md'), 'utf8');
     const shown = /`\.github\/workflows\/patchhound\.yml`:\n\n```yaml\n([\s\S]*?)```/.exec(docs)?.[1];

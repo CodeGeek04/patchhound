@@ -39,7 +39,7 @@ The job that runs your project's code has no write access and no secret but Clau
 ## Good to know
 
 - npm and pnpm lockfiles at the repo root are what it is tested on most (yarn works too).
-- Public repos run on Actions for free. A private repo uses its monthly Actions minutes: a run takes about 3 to 5 minutes when nothing is new and 10 to 30 when it fixes something.
+- Public repos run on Actions for free. A private repo uses its account's monthly Actions minutes (2,000 on GitHub Free): a run that finds nothing new is the scan alone, about 1 to 2 minutes, and one that fixes something takes 10 to 30. To run less often: `npx patchhound init --schedule "17 3 * * *"` (once a day).
 - Claude Code may spend at most $10 on one run (`fix.budget_usd`). On a Claude subscription, that counts against your plan's usage.
 - Try it locally first, without changing anything: `npx patchhound scan --dry-run` in a project folder.
 

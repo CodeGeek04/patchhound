@@ -32,6 +32,14 @@ inputs:
     description: "fix: most Claude Code may spend in one run (overrides fix.budget_usd)."
     required: false
 
+outputs:
+  fix:
+    description: "scan: false when the fix job has nothing new to do, so the workflow can skip it (and save its minutes)"
+    value: ${{ steps.scan.outputs.fix }}
+  handoff:
+    description: "fix: false when there is nothing for the publish job"
+    value: ${{ steps.fix.outputs.handoff }}
+
 runs:
   using: composite
   steps:
@@ -110,6 +118,7 @@ runs:
     # the repo, or in a bundle the fix job forged, that maps `commander` to a file of its own would
     # run that file in this job, with this job's tokens.
     - name: Scan, triage and alert
+      id: scan
       if: inputs.mode == 'scan'
       shell: bash
       env:
@@ -121,12 +130,13 @@ runs:
       # The report also goes to the run's Summary page, away from the install noise.
       run: |
         set +e
-        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" scan . | tee "$RUNNER_TEMP/patchhound-scan.txt"
+        "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" scan . --github-output | tee "$RUNNER_TEMP/patchhound-scan.txt"
         status=${PIPESTATUS[0]}
         { echo '### patchhound scan'; echo '```'; cat "$RUNNER_TEMP/patchhound-scan.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         exit $status
 
     - name: Fix, and hand the pull requests to the publish job
+      id: fix
       if: inputs.mode == 'fix'
       shell: bash
       env:
@@ -142,6 +152,8 @@ runs:
         "$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/src/cli.ts" fix . --in-place --handoff "$RUNNER_TEMP/patchhound-handoff" ${BUDGET:+--budget "$BUDGET"} | tee "$RUNNER_TEMP/patchhound-fix.txt"
         status=${PIPESTATUS[0]}
         { echo '### patchhound fix'; echo '```'; cat "$RUNNER_TEMP/patchhound-fix.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        # The publish job is skipped when there is nothing to publish.
+        if [ -f "$RUNNER_TEMP/patchhound-handoff/handoff.json" ]; then echo handoff=true; else echo handoff=false; fi >> "$GITHUB_OUTPUT"
         exit $status
 
     - uses: actions/upload-artifact@v4
