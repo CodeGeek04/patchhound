@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { isMap, isSeq, parseDocument } from 'yaml';
 import { REPO_FILE } from '../config.js';
 import type { GitHubRepo } from '../fix/git.js';
 import { addWorktree, git, removeWorktree, repoInfo } from '../fix/git.js';
@@ -11,10 +12,16 @@ import { noDashes } from '../fix/pr-body.js';
 import { DEFAULT_SCHEDULE, WORKFLOW_PATH, workflowFile } from './workflow.js';
 
 /**
- * `patchhound init`: sets a repo up for the GitHub Action in one go. It writes the workflow (and a
- * .patchhound.yml when a setting differs from the default), stores the Claude token as a repo secret
- * through gh's own hidden prompt, lets Actions open pull requests, and opens a setup PR. The person's
- * checkout is never touched: the PR is made from a worktree of the default branch.
+ * `patchhound init`: everything a repo needs for the GitHub Action, in one command. It
+ * - writes the workflow, and the .patchhound.yml settings the answers call for (Slack alerts on,
+ *   Vercel's commit author), editing a .patchhound.yml already there;
+ * - stores the secrets through gh's own hidden prompt: the Claude token, the Jev key (which makes
+ *   triage faster and cheaper) and the Slack webhook;
+ * - makes sure Actions is on and may run the actions the workflow uses, and may open pull requests;
+ * - opens a setup PR (or updates its own from an earlier run) and offers to merge it, which starts
+ *   the first run.
+ * The person's checkout is never touched: the PR is made from a worktree of the default branch. Run it
+ * again at any time: it does only what is still missing.
  */
 
 export const SETUP_BRANCH = 'patchhound/setup';
@@ -51,15 +58,31 @@ export interface InitOptions {
   repo?: GitHubRepo;
 }
 
+export type SecretState = 'present' | 'set' | 'not set' | 'skipped';
+export type SettingState = 'on' | 'turned on' | 'not on';
+
 export interface InitResult {
   repo: string;
+  /** The setup PR, when there was anything to add to the repo. */
   pr: string | null;
+  merged: boolean;
+  /** What the PR adds or changes (or, with pr: false, what was written). */
   files: string[];
-  secret: 'present' | 'set' | 'not set';
-  pullRequests: 'on' | 'turned on' | 'not on';
+  secrets: { claude: SecretState; jev: SecretState; slack: SecretState };
+  actions: SettingState;
+  pullRequests: SettingState;
 }
 
 const LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock'];
+/** The actions the workflow and the Patchhound Action use, besides Patchhound itself. */
+const GITHUB_ACTIONS = ['actions/checkout', 'actions/setup-node', 'actions/cache', 'actions/upload-artifact', 'actions/download-artifact'];
+
+interface RepoAbout {
+  default_branch: string;
+  allow_merge_commit?: boolean;
+  allow_squash_merge?: boolean;
+  allow_rebase_merge?: boolean;
+}
 
 export async function init(options: InitOptions, io: InitIO = realIO()): Promise<InitResult> {
   const info = await repoInfo(options.dir);
@@ -67,75 +90,195 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
   if (!repo) throw new Error('origin is not a GitHub repository; Patchhound runs as a GitHub Action');
   const slug = `${repo.owner}/${repo.name}`;
 
-  const about = await io.gh(['api', `repos/${slug}`, '--jq', '.default_branch']);
-  if (about.code !== 0) throw new Error(`gh cannot read ${slug}: ${lastLine(about.output)} (gh auth login signs in)`);
-  const base = about.output.trim();
+  const read = await io.gh(['api', `repos/${slug}`]);
+  if (read.code !== 0) throw new Error(`gh cannot read ${slug}: ${lastLine(read.output)} (gh auth login signs in)`);
+  const about = JSON.parse(read.output) as RepoAbout;
+  const base = about.default_branch;
 
   // What the files go on top of: the default branch as GitHub has it (a PR), or this checkout.
-  const pr = options.pr !== false;
   let commit: string | null = null;
-  if (pr) {
+  if (options.pr !== false) {
     await ghGit(info.top, ['fetch', '--quiet', 'origin', base]);
     commit = await git(info.top, ['rev-parse', 'FETCH_HEAD']);
   }
+  const readAt = async (path: string): Promise<string | null> =>
+    commit === null ? readFile(join(info.top, path), 'utf8').catch(() => null) : git(info.top, ['show', `${commit}:${path}`]).then((text) => `${text}\n`, () => null);
   const present = async (paths: readonly string[]) => {
     if (commit === null) return anyExists(info.top, paths);
     for (const path of paths) if (await git(info.top, ['cat-file', '-e', `${commit}:${path}`]).then(() => true, () => false)) return true;
     return false;
   };
 
-  if (!(await present(LOCKFILES))) throw new Error(`Patchhound reads ${LOCKFILES.join(', ')} at the repo root, and ${slug} has none on ${pr ? base : 'this checkout'}`);
-  // Before anything changes on GitHub.
-  if (!options.force && (await present([WORKFLOW_PATH]))) throw new Error(`${slug} already has ${WORKFLOW_PATH}: --force replaces it`);
+  if (!(await present(LOCKFILES))) throw new Error(`Patchhound reads ${LOCKFILES.join(', ')} at the repo root, and ${slug} has none on ${commit ? base : 'this checkout'}`);
 
-  const vercel = options.vercel ?? ((await present(['vercel.json'])) || (await anyExists(info.top, ['.vercel/project.json'])) || (await io.ask('Does this repo deploy on Vercel?', false)));
-  const files = new Map<string, string>([[WORKFLOW_PATH, workflowFile({ action: options.action, base, apiKey: options.apiKey ?? false, ...(options.schedule ? { schedule: options.schedule } : {}) })]]);
-  if (vercel) {
-    if (await present([REPO_FILE])) io.log(`${REPO_FILE} is already there: add fix.commit_as: actor to it, so Vercel builds the fix PR's preview.`);
-    else files.set(REPO_FILE, VERCEL_CONFIG);
+  const files = new Map<string, string>();
+  if (options.force || !(await present([WORKFLOW_PATH]))) {
+    files.set(WORKFLOW_PATH, workflowFile({ action: options.action, base, apiKey: options.apiKey ?? false, ...(options.schedule ? { schedule: options.schedule } : {}) }));
+  } else {
+    io.log(`${WORKFLOW_PATH} is already on ${base}: kept (--force writes it again).`);
   }
 
-  const secret = await storeSecret(slug, options.apiKey ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN', io);
+  const vercel = options.vercel ?? ((await present(['vercel.json'])) || (await anyExists(info.top, ['.vercel/project.json'])) || (await io.ask('Does this repo deploy on Vercel?', false)));
+
+  const secretNames = await listSecrets(slug, io);
+  const claude = await claudeSecret(slug, options.apiKey ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN', secretNames, io);
+  const jev = await extraSecret(slug, 'TYPESAFE_API_KEY', secretNames, io, {
+    question: 'Add your Jev (TypeSafe) API key? Jev answers most triage questions faster and cheaper than Claude, which then judges only what Jev is unsure of. Keys: console.typesafe.ai',
+    paste: 'Paste the TypeSafe API key',
+    without: 'Without Jev, Claude judges every finding: slower, and more of your Claude usage.',
+  });
+  const slack = await extraSecret(slug, 'SLACK_WEBHOOK_URL', secretNames, io, {
+    question: 'Send alerts to Slack? It takes a Slack incoming webhook URL (api.slack.com/messaging/webhooks).',
+    paste: 'Paste the Slack webhook URL',
+    without: "Without a channel, alerts only show on each run's Summary page in the Actions tab.",
+  });
+
+  const config = editConfig(await readAt(REPO_FILE), { alerts: slack === 'present' || slack === 'set', vercel });
+  if (config !== null) files.set(REPO_FILE, config);
+
+  const actions = await enableActions(slug, options.action, io);
   const pullRequests = await allowPullRequests(slug, io);
 
   let url: string | null = null;
-  if (commit === null) {
+  let merged = false;
+  if (files.size === 0) {
+    io.log(`Nothing to add to the repo: the workflow and settings are already on ${base}.`);
+  } else if (commit === null) {
     for (const [path, text] of files) await writeFiles(info.top, path, text);
     io.log(`Wrote ${[...files.keys()].join(' and ')}. Commit them to ${base} and the first run starts.`);
   } else {
-    url = await openSetupPr(info.top, commit, slug, base, files, options.schedule ?? DEFAULT_SCHEDULE, io);
+    url = await setupPr(info.top, commit, slug, base, files, options.schedule ?? DEFAULT_SCHEDULE, io);
+    merged = await offerMerge(url, about, files.has(WORKFLOW_PATH), io);
   }
-  return { repo: slug, pr: url, files: [...files.keys()], secret, pullRequests };
+  return { repo: slug, pr: url, merged, files: [...files.keys()], secrets: { claude, jev, slack }, actions, pullRequests };
 }
 
-const VERCEL_CONFIG = `# Patchhound's settings for this repo (every setting: patchhound init --config-only).
-fix:
-  # Vercel builds a private repo's previews only for its team members' commits, so the fix commits
-  # are authored by the person who started the run (github-actions[bot] stays the committer).
-  commit_as: actor
-`;
+/**
+ * The .patchhound.yml the answers call for, from the one on the default branch (comments and other
+ * settings kept); null when it needs no change. `alerts`: Slack on, and dry_run off, which is what
+ * lets alerts go out. `vercel`: the fix commits are authored by the person who started the run.
+ */
+export function editConfig(current: string | null, want: { alerts: boolean; vercel: boolean }): string | null {
+  if (current === null) {
+    if (!want.alerts && !want.vercel) return null;
+    const parts = ["# Patchhound's settings for this repo (every setting: npx patchhound init --config-only)."];
+    if (want.alerts) {
+      parts.push(
+        '',
+        '# Send alerts to the channels below (dry_run: true only prints them in the run\'s log).',
+        'dry_run: false',
+        'notify:',
+        '  channels:',
+        '    # The webhook URL is the repo secret SLACK_WEBHOOK_URL.',
+        '    - type: slack',
+      );
+    }
+    if (want.vercel) {
+      parts.push(
+        '',
+        'fix:',
+        "  # Vercel builds a private repo's previews only for its team members' commits, so the fix commits",
+        '  # are authored by the person who started the run (github-actions[bot] stays the committer).',
+        '  commit_as: actor',
+      );
+    }
+    return `${parts.join('\n')}\n`;
+  }
+  const doc = parseDocument(current);
+  let changed = false;
+  if (want.alerts) {
+    if (doc.get('dry_run') !== false) {
+      doc.set('dry_run', false);
+      changed = true;
+    }
+    const channels = doc.getIn(['notify', 'channels']);
+    const slack = isSeq(channels) && channels.items.some((item) => isMap(item) && item.get('type') === 'slack');
+    if (!slack) {
+      if (isSeq(channels)) channels.add(doc.createNode({ type: 'slack' }));
+      else doc.setIn(['notify', 'channels'], doc.createNode([{ type: 'slack' }]));
+      changed = true;
+    }
+  }
+  if (want.vercel && doc.getIn(['fix', 'commit_as']) !== 'actor') {
+    doc.setIn(['fix', 'commit_as'], 'actor');
+    changed = true;
+  }
+  return changed ? doc.toString() : null;
+}
 
-/** Stores the Claude token (or API key) as a repo secret, unless it is there; gh asks for it, hidden. */
-async function storeSecret(slug: string, name: string, io: InitIO): Promise<InitResult['secret']> {
+async function listSecrets(slug: string, io: InitIO): Promise<Set<string>> {
   const list = await io.gh(['secret', 'list', '--repo', slug, '--json', 'name', '--jq', '.[].name']);
-  if (list.code === 0 && list.output.split('\n').map((line) => line.trim()).includes(name)) return 'present';
-  const command = `gh secret set ${name} --repo ${slug}`;
+  return new Set(list.code === 0 ? list.output.split('\n').map((line) => line.trim()).filter(Boolean) : []);
+}
+
+/** Stores a secret through gh's hidden prompt. */
+async function setSecret(slug: string, name: string, paste: string, io: InitIO): Promise<boolean> {
+  io.log(`${paste} (it is not shown); it is stored as the ${name} secret of ${slug}.`);
+  if ((await io.interactive(['gh', 'secret', 'set', name, '--repo', slug])) === 0) return true;
+  io.log(`${name} was not stored: run gh secret set ${name} --repo ${slug} later.`);
+  return false;
+}
+
+/** The Claude token (or API key): the one secret a run cannot do without. */
+async function claudeSecret(slug: string, name: string, have: ReadonlySet<string>, io: InitIO): Promise<SecretState> {
+  if (have.has(name)) return 'present';
   if (!io.tty) {
-    io.log(`The ${name} secret is not set: run ${command} and paste it.`);
+    io.log(`The ${name} secret is not set: run gh secret set ${name} --repo ${slug} and paste it.`);
     return 'not set';
   }
   if (name === 'CLAUDE_CODE_OAUTH_TOKEN' && (await io.onPath('claude')) && (await io.ask('Make a Claude token now (claude setup-token)?', true))) {
     io.log('Sign in in the browser; the token it prints goes in the next prompt.');
     await io.interactive(['claude', 'setup-token']);
   }
-  io.log(`Paste the ${name === 'ANTHROPIC_API_KEY' ? 'API key' : 'Claude token'} (it is not shown); it is stored as the ${name} secret of ${slug}.`);
-  if ((await io.interactive(['gh', 'secret', 'set', name, '--repo', slug])) === 0) return 'set';
-  io.log(`The secret was not stored: run ${command} later.`);
-  return 'not set';
+  return (await setSecret(slug, name, name === 'ANTHROPIC_API_KEY' ? 'Paste the Anthropic API key' : 'Paste the Claude token', io)) ? 'set' : 'not set';
+}
+
+/** The Jev key or the Slack webhook: asked for, unless already there. */
+async function extraSecret(slug: string, name: string, have: ReadonlySet<string>, io: InitIO, text: { question: string; paste: string; without: string }): Promise<SecretState> {
+  if (have.has(name)) return 'present';
+  const later = `Add it later: gh secret set ${name} --repo ${slug} (and run npx patchhound init again).`;
+  if (!io.tty || !(await io.ask(text.question, true))) {
+    io.log(`${text.without} ${later}`);
+    return 'skipped';
+  }
+  return (await setSecret(slug, name, text.paste, io)) ? 'set' : 'not set';
+}
+
+/**
+ * Actions must be on, and allowed to run GitHub's own actions and Patchhound's. It is turned on when
+ * off; a narrower list of allowed actions is the owner's choice, so init says what to add to it.
+ */
+async function enableActions(slug: string, action: string, io: InitIO): Promise<SettingState> {
+  const path = `repos/${slug}/actions/permissions`;
+  const now = await io.gh(['api', path]);
+  if (now.code !== 0) return 'on'; // Not readable with this sign-in: the first run will tell.
+  const settings = JSON.parse(now.output) as { enabled?: boolean; allowed_actions?: string };
+  let state: SettingState = 'on';
+  if (settings.enabled === false) {
+    if ((await io.gh(['api', '-X', 'PUT', path, '-F', 'enabled=true'])).code !== 0) {
+      io.log(`GitHub Actions is off for ${slug}, and it could not be turned on: turn it on at https://github.com/${slug}/settings/actions.`);
+      return 'not on';
+    }
+    state = 'turned on';
+  }
+  const own = action.split('@')[0]!;
+  const needed = [...GITHUB_ACTIONS, own];
+  let missing: string[] = [];
+  if (settings.allowed_actions === 'local_only') missing = needed;
+  else if (settings.allowed_actions === 'selected') {
+    const selected = await io.gh(['api', `${path}/selected-actions`]);
+    const allowed = selected.code === 0 ? (JSON.parse(selected.output) as { github_owned_allowed?: boolean; patterns_allowed?: string[] }) : {};
+    const patterns = allowed.patterns_allowed ?? [];
+    const allows = (name: string) => patterns.some((p) => p === name || p === `${name}@*` || p.startsWith(`${name}@`) || p === `${name.split('/')[0]}/*`);
+    missing = needed.filter((name) => !(name.startsWith('actions/') && allowed.github_owned_allowed) && !allows(name));
+  }
+  if (missing.length === 0) return state;
+  io.log(`${slug} allows only some actions; add these at https://github.com/${slug}/settings/actions: ${missing.map((name) => `${name}@*`).join(', ')}.`);
+  return 'not on';
 }
 
 /** Lets GitHub Actions open pull requests (off by default); an organization may forbid it. */
-async function allowPullRequests(slug: string, io: InitIO): Promise<InitResult['pullRequests']> {
+async function allowPullRequests(slug: string, io: InitIO): Promise<SettingState> {
   const path = `repos/${slug}/actions/permissions/workflow`;
   const now = await io.gh(['api', path]);
   const settings = now.code === 0 ? (JSON.parse(now.output) as { default_workflow_permissions?: string; can_approve_pull_request_reviews?: boolean }) : null;
@@ -148,34 +291,47 @@ async function allowPullRequests(slug: string, io: InitIO): Promise<InitResult['
   return 'not on';
 }
 
-/** Commits the files on top of the default branch, in a worktree of its own, and opens the PR. */
-async function openSetupPr(top: string, commit: string, slug: string, base: string, files: Map<string, string>, schedule: string, io: InitIO): Promise<string> {
+/**
+ * Commits the files on top of the default branch, in a worktree of its own, and opens the setup PR,
+ * or updates the one an earlier run opened (the branch is init's own, so it is replaced).
+ */
+async function setupPr(top: string, commit: string, slug: string, base: string, files: Map<string, string>, schedule: string, io: InitIO): Promise<string> {
   const worktree = await addWorktree(top, commit);
   try {
     for (const [path, text] of files) await writeFiles(worktree, path, text);
     await git(worktree, ['add', '--', ...files.keys()]);
     await git(worktree, ['commit', '--quiet', '--no-verify', '-m', 'Add Patchhound']);
-    try {
-      await ghGit(worktree, ['push', '--quiet', 'origin', `HEAD:refs/heads/${SETUP_BRANCH}`]);
-    } catch {
-      throw new Error(`${SETUP_BRANCH} is already on GitHub: merge or close its PR, or delete the branch, and run init again`);
-    }
+    await ghGit(worktree, ['push', '--quiet', '--force', 'origin', `HEAD:refs/heads/${SETUP_BRANCH}`]);
   } finally {
     await removeWorktree(top, worktree);
   }
-  const created = await io.gh(['pr', 'create', '--repo', slug, '--base', base, '--head', SETUP_BRANCH, '--title', 'Add Patchhound', '--body', setupBody(files, schedule)]);
+  const body = setupBody(files, schedule);
+  const open = await io.gh(['pr', 'list', '--repo', slug, '--head', SETUP_BRANCH, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""']);
+  const existing = open.code === 0 ? open.output.trim() : '';
+  if (existing) {
+    await io.gh(['pr', 'edit', existing, '--body', body]);
+    return existing;
+  }
+  const created = await io.gh(['pr', 'create', '--repo', slug, '--base', base, '--head', SETUP_BRANCH, '--title', 'Add Patchhound', '--body', body]);
   if (created.code !== 0) throw new Error(`the branch ${SETUP_BRANCH} is pushed, but the PR could not be opened: ${lastLine(created.output)}`);
   return lastLine(created.output);
 }
 
+/** Merges the setup PR when the person says so (which starts the first run, once the workflow lands). */
+async function offerMerge(url: string, about: RepoAbout, startsRun: boolean, io: InitIO): Promise<boolean> {
+  if (!io.tty || !(await io.ask(`Merge the setup PR now?${startsRun ? ' That starts the first run.' : ''}`, true))) return false;
+  const method = about.allow_merge_commit !== false ? '--merge' : about.allow_squash_merge !== false ? '--squash' : '--rebase';
+  const result = await io.gh(['pr', 'merge', url, method, '--delete-branch']);
+  if (result.code === 0) return true;
+  io.log(`It could not be merged from here (${lastLine(result.output)}): merge it at ${url}.`);
+  return false;
+}
+
 function setupBody(files: Map<string, string>, schedule: string): string {
   const when = schedule === DEFAULT_SCHEDULE ? 'Every 4 hours' : `On the schedule \`${schedule}\` (UTC)`;
-  const lines = [
-    `Adds Patchhound. ${when} it checks the dependencies for advisories, alerts on the ones the code exposes, and keeps one pull request open that fixes what it can.`,
-    '',
-    `- \`${WORKFLOW_PATH}\`: the scan, fix and publish jobs. The job that runs this project's code has no write access.`,
-  ];
-  if (files.has(REPO_FILE)) lines.push(`- \`${REPO_FILE}\`: the fix commits are authored by the person who started the run, so Vercel builds the PR's preview.`);
+  const lines = [`Adds Patchhound. ${when} it checks the dependencies for advisories, alerts on the ones the code exposes, and keeps one pull request open that fixes what it can.`, ''];
+  if (files.has(WORKFLOW_PATH)) lines.push(`- \`${WORKFLOW_PATH}\`: the scan, fix and publish jobs. The job that runs this project's code has no write access.`);
+  if (files.has(REPO_FILE)) lines.push(`- \`${REPO_FILE}\`: this repo's settings (alerts to Slack, and the fix commits' author for Vercel previews, as chosen).`);
   lines.push('', "Merging starts the first run. Its report is on the run's Summary page in the Actions tab, and the fix PR, when there is one, shows up under Pull requests.");
   return noDashes(lines.join('\n'));
 }
@@ -189,7 +345,6 @@ async function ghGit(dir: string, args: readonly string[]): Promise<string> {
   return git(dir, ['-c', 'credential.https://github.com.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...args]);
 }
 
-/** Writes one file (init checked before that it may: see `present`). */
 async function writeFiles(root: string, path: string, text: string): Promise<void> {
   await mkdir(dirname(join(root, path)), { recursive: true });
   await writeFile(join(root, path), text);
