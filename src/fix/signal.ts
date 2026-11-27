@@ -13,14 +13,17 @@ import { z } from 'zod';
  * - a malicious package is in the lockfile (it makes the malware PR, and fails the run until it is out);
  * - the findings a fix would take on, or the dependency files, differ from the last time the fix job
  *   was sent;
- * - a day has passed since then (a fix that failed, or a PR a person closed, gets another try).
+ * - about a day has passed since then (a fix that failed, or a PR a person closed, gets another
+ *   try). The window is 20 hours, so a daily schedule that starts a few minutes early still counts,
+ *   and so the fix job's own wait after a failed attempt (18 hours, in fix.ts) has passed by then.
  * It is skipped when there is nothing a fix PR would cover.
  */
 
 export const SIGNAL_FILE = 'fix-signal.json';
-const RETRY_MS = 24 * 60 * 60 * 1000;
+export const RETRY_MS = 20 * 60 * 60 * 1000;
 
-const signalSchema = z.object({ fingerprint: z.string(), at: z.string() });
+/** `run`: the workflow run that saved it (a re-run of that run, which restores the same cache, starts afresh). */
+const signalSchema = z.object({ fingerprint: z.string(), at: z.string(), run: z.string().optional() });
 export type FixSignal = z.infer<typeof signalSchema>;
 
 export interface FixDecision {
@@ -30,15 +33,22 @@ export interface FixDecision {
   next: FixSignal | null;
 }
 
-export function decideFix(work: { keys: readonly string[]; malicious: boolean }, dependencies: string, previous: FixSignal | null, now = new Date()): FixDecision {
+export function decideFix(work: { keys: readonly string[]; malicious: boolean }, dependencies: string, saved: FixSignal | null, now = new Date(), run?: string): FixDecision {
+  // One from the future (a clock gone wrong, or a cache entry someone forged) would skip fixes for
+  // good; one from this same run is a re-run, which should do the whole run again.
+  const previous = saved && Date.parse(saved.at) <= now.getTime() && !(run !== undefined && saved.run === run) ? saved : null;
   if (work.malicious) return { fix: true, reason: 'a malicious package is in the lockfile', next: previous };
   if (work.keys.length === 0) return { fix: false, reason: 'nothing a fix PR would cover', next: null };
   const fingerprint = createHash('sha256').update(JSON.stringify([...work.keys].sort())).update('\n').update(dependencies).digest('hex');
   const sent = previous?.fingerprint === fingerprint ? Date.parse(previous.at) : NaN;
   if (now.getTime() - sent < RETRY_MS) {
-    return { fix: false, reason: `the same ${work.keys.length === 1 ? 'finding' : `${work.keys.length} findings`} and dependency files as when the fix job last ran (${previous!.at}); it runs again a day after that, or when they change`, next: previous };
+    return { fix: false, reason: `the same ${work.keys.length === 1 ? 'finding' : `${work.keys.length} findings`} and dependency files as when the fix job last ran (${previous!.at}); it runs again about a day after that, or when they change`, next: previous };
   }
-  return { fix: true, reason: previous?.fingerprint === fingerprint ? 'a day since the fix job last ran for these findings' : `${work.keys.length === 1 ? 'a finding' : `${work.keys.length} findings`} for a fix PR, new or changed since the fix job last ran`, next: { fingerprint, at: now.toISOString() } };
+  return {
+    fix: true,
+    reason: previous?.fingerprint === fingerprint ? 'about a day since the fix job last ran for these findings' : `${work.keys.length === 1 ? 'a finding' : `${work.keys.length} findings`} for a fix PR, new or changed since the fix job last ran`,
+    next: { fingerprint, at: now.toISOString(), ...(run !== undefined ? { run } : {}) },
+  };
 }
 
 /** The dependency files a fix works from: the lockfile and the root manifest, as they are now. */

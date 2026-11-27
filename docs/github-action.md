@@ -4,7 +4,7 @@ Add one workflow to a repo, and Patchhound scans it on a schedule, alerts on wha
 
 ## Quick start
 
-You need Node 20 or later, git, the GitHub CLI signed in as an owner or admin of the repo (`gh auth login`), Claude Code for the Claude token (or an Anthropic API key: add `--api-key`), a Jev (TypeSafe) API key, and a Slack incoming webhook for alerts. In your repo's folder:
+Have these ready (`init` asks for each): Node 20 or later, git, the GitHub CLI signed in as an owner or admin of the repo (`gh auth login`), Claude Code for the Claude token (or an Anthropic API key: add `--api-key`), a Jev (TypeSafe) API key, and a Slack incoming webhook for alerts. In your repo's folder:
 
 ```
 npx patchhound init
@@ -120,7 +120,7 @@ Then, in the repo's Settings > Actions > General > Workflow permissions, tick **
 
 ## 3. Settings
 
-Optional: `patchhound init` writes a `.patchhound.yml` with every setting and its default: the alert threshold, the repo's exposure, which findings Claude checks, the checks a fix must pass (`fix.checks`, detected from the build, typecheck and test scripts when empty), what runs after each install before the checks (`fix.setup`, `prisma generate` when the project uses Prisma), and the most Claude Code may spend on one run (`fix.budget_usd`, $10 by default).
+Optional: `npx patchhound init --config-only` writes a starter `.patchhound.yml` (in a repo that has none) with every setting and its default: the alert threshold, the repo's exposure, which findings Claude checks, the checks a fix must pass (`fix.checks`, detected from the build, typecheck and test scripts when empty), what runs after each install before the checks (`fix.setup`, `prisma generate` when the project uses Prisma), and the most Claude Code may spend on one run (`fix.budget_usd`, $10 by default).
 
 The checks run with the job's environment, minus Patchhound's and GitHub's tokens. If your build or code generation needs variables (a database URL that Prisma's config reads, say), set them in the workflow's `env`; placeholders are enough for a build that does not connect. Checks that fail before any change are not required, and with none passing, major upgrades stay out of the PR. The PR and the run's summary show why each of those failed. A build that reads a database (a page that queries it while pre-rendering) needs one: add a `postgres` service to the `fix` job, point the database variables at it, and set `fix.setup` to generate and migrate (`npx prisma generate`, `npx prisma migrate deploy`).
 
@@ -139,17 +139,17 @@ The PR's commits come from `github-actions[bot]`. Vercel builds a private repo's
    - a change that still breaks a check is left out, and the PR lists the findings it would have fixed and why they wait;
    - hands the result to the publish job, which checks it and opens the PR, or updates the one already open, with every advisory, why it matters, what changed and the checks before and after. The PR only ever holds changes that pass every check that passed before.
 3. A malicious package gets a PR of its own, `patchhound/fixes-malware`, at once.
-4. When nothing a fix PR would cover has changed since the fix job last ran, the scan job tells the workflow to skip the fix and publish jobs, which saves their Actions minutes. They still run at least once a day while there is something to fix, and always when you start a run by hand.
+4. When nothing a fix PR would cover has changed since the fix job last ran, the scan job tells the workflow to skip the fix and publish jobs, which saves their Actions minutes. They still run about once a day (20 hours after they last ran) while there is something to fix, and always when you start a run by hand.
 
 Nothing is ever merged by Patchhound in this version.
 
-The fix step fails (a red run) when it needs a person: a malicious package is still in the lockfile, or the project does not install as it is. A run that keeps nothing, because every change broke a check, is not a failure; the next run tries again when there are new findings, or a day later on a new commit. The publish job fails when it refuses a bundle.
+The fix step fails (a red run) when it needs a person: a malicious package is still in the lockfile, or the project does not install as it is. A run that keeps nothing, because every change broke a check, is not a failure; the next run tries again when there are new findings, or about a day later on a new commit. The publish job fails when it refuses a bundle.
 
 ## What it will not do
 
 - Install, build or test a commit that has a known malicious package: the malware PR is made with lockfile changes only, and every install first checks that no malicious version came in.
 - Give your project's code a secret it does not need: the job that installs, tests and runs Claude Code holds Claude's sign-in and a read-only GitHub token, and nothing else (the alert secrets stay in `scan`, the write token in `publish`). Within that job, installs, scripts, checks and Claude Code's tools also run without those tokens in their environment.
-- Push what it did not check: `publish` takes only commits Patchhound made, on the base they declare, and refuses one that changes `.github/` or Patchhound's config (a malware PR: anything but manifests and lockfiles).
+- Push what it did not check: `publish` takes only commits that start at the base they declare and carry Patchhound's identity, and refuses any that change `.github/` or Patchhound's config (a malware PR: anything but manifests and lockfiles). The identity is a check against mistakes, not proof: the fix job could forge it, so the base and file checks are what keep a workflow change or an unrelated change out.
 - Push anywhere but `patchhound/fixes` (and `-malware`) in this repository, or over commits someone else pushed there: such a branch is left alone, and the run says so.
 - Let Claude Code change `.github/` or Patchhound's own config (such edits are put back) or use web tools. It is allowed file tools, read-only git, your checks and the package manager's install, update, remove and run commands (not `npx`, `exec` or `dlx`). That narrows what it reaches for; it is not a sandbox: it can edit and run your project's scripts, as any change to the code could.
 - Merge anything.

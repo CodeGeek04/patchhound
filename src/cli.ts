@@ -13,7 +13,7 @@ import type { CentralConfig } from './config.js';
 import { centralRepos, defaultCentralPath, initConfig, loadCentral, loadConfig } from './config.js';
 import { defaultAction } from './setup/action-ref.js';
 import { init } from './setup/init.js';
-import { DEFAULT_SCHEDULE } from './setup/workflow.js';
+import { DEFAULT_SCHEDULE, WORKFLOW_PATH } from './setup/workflow.js';
 import type { FixRun } from './fix/fix.js';
 import { fixRepo, fixWork } from './fix/fix.js';
 import { decideFix, dependencyFiles, readSignal, saveSignal } from './fix/signal.js';
@@ -122,19 +122,21 @@ program
 
 /**
  * The Action's scan job tells the workflow whether to run the fix job (see fix/signal.ts). Without a
- * triage to go by, it runs: the fix job works out for itself whether there is anything to do.
+ * triage to go by it says run; the scan job fails then anyway, which skips the fix job.
  */
 async function signalFixJob(dir: string, result: ScanResult, assessment: Assessment | null, dryRun: boolean): Promise<void> {
   const stateDir = join(dir, '.patchhound');
   const decision = assessment
-    ? decideFix(fixWork(result, assessment), await dependencyFiles(dir, result.lockfile), await readSignal(stateDir))
+    ? decideFix(fixWork(result, assessment), await dependencyFiles(dir, result.lockfile), await readSignal(stateDir), new Date(), process.env.GITHUB_RUN_ID)
     : { fix: true, reason: 'triage did not finish', next: undefined };
   if (!dryRun && decision.next !== undefined) {
     await mkdir(stateDir, { recursive: true });
     await saveSignal(stateDir, decision.next);
   }
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `fix=${decision.fix}\n`);
-  process.stdout.write(`\nFix job: ${decision.fix ? 'runs' : 'skipped'}, ${decision.reason}.\n`);
+  // The workflow runs the fix job anyway for a run started by hand ("Run workflow").
+  const byHand = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+  process.stdout.write(`\nFix job: ${decision.fix ? `runs, ${decision.reason}` : byHand ? `runs, because this run was started by hand (otherwise skipped: ${decision.reason})` : `skipped, ${decision.reason}`}.\n`);
 }
 
 /** The assessment in --json output: per finding, its triage and decision; and the messages. */
@@ -362,7 +364,9 @@ program
     const secret = (state: string) => ({ present: 'already set', set: 'stored', 'not set': 'NOT set (see above)', skipped: 'skipped (see above)' })[state];
     const setting = (state: string) => ({ on: 'already on', 'turned on': 'turned on', 'not on': 'NOT on (see above)' })[state];
     const next = result.merged
-      ? 'The first run has started: Actions tab, patchhound.'
+      ? result.files.includes(WORKFLOW_PATH)
+        ? 'The first run has started: Actions tab, patchhound.'
+        : 'Merged. The next run uses it; Run workflow in the Actions tab (patchhound) starts one now.'
       : result.pr
         ? `Merge ${result.pr} and the first run starts (Actions tab, patchhound).`
         : result.files.length > 0

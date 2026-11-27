@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { isMap, isSeq, parseDocument } from 'yaml';
 import { REPO_FILE } from '../config.js';
 import type { GitHubRepo } from '../fix/git.js';
 import { addWorktree, git, removeWorktree, repoInfo } from '../fix/git.js';
 import type { ToolResult } from '../fix/pm.js';
-import { runTool } from '../fix/pm.js';
+import { runTool, safeEnv } from '../fix/pm.js';
 import { noDashes } from '../fix/pr-body.js';
 import { DEFAULT_SCHEDULE, WORKFLOW_PATH, workflowFile } from './workflow.js';
 
@@ -133,7 +133,12 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
     without: "Without a channel, alerts only show on each run's Summary page in the Actions tab.",
   });
 
-  const config = editConfig(await readAt(REPO_FILE), { alerts: slack === 'present' || slack === 'set', vercel });
+  const current = await readAt(REPO_FILE);
+  // Slack just stored: alerts on. Stored before: on too, unless the file already says how alerts go
+  // (a dry_run: true or a channel list someone set on purpose stays as it is).
+  const alerts = slack === 'set' || (slack === 'present' && !choosesAlerts(current));
+  if (slack === 'present' && !alerts && current !== null && parseDocument(current).get('dry_run') === true) io.log(`${REPO_FILE} sets dry_run: true, so alerts are only printed in the run's log; set it to false to send them to Slack.`);
+  const config = editConfig(current, { alerts, vercel });
   if (config !== null) files.set(REPO_FILE, config);
 
   const actions = await enableActions(slug, options.action, io);
@@ -147,10 +152,18 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
     for (const [path, text] of files) await writeFiles(info.top, path, text);
     io.log(`Wrote ${[...files.keys()].join(' and ')}. Commit them to ${base} and the first run starts.`);
   } else {
-    url = await setupPr(info.top, commit, slug, base, files, options.schedule ?? DEFAULT_SCHEDULE, io);
-    merged = await offerMerge(url, about, files.has(WORKFLOW_PATH), io);
+    const pr = await setupPr(info.top, commit, slug, base, files, options.schedule ?? DEFAULT_SCHEDULE, io);
+    url = pr.url;
+    merged = await offerMerge(pr.url, pr.head, files, about, io);
   }
   return { repo: slug, pr: url, merged, files: [...files.keys()], secrets: { claude, jev, slack }, actions, pullRequests };
+}
+
+/** Whether a .patchhound.yml already says how alerts go: dry_run, or a list of channels. */
+function choosesAlerts(current: string | null): boolean {
+  if (current === null) return false;
+  const doc = parseDocument(current);
+  return doc.has('dry_run') || doc.hasIn(['notify', 'channels']);
 }
 
 /**
@@ -161,7 +174,7 @@ export async function init(options: InitOptions, io: InitIO = realIO()): Promise
 export function editConfig(current: string | null, want: { alerts: boolean; vercel: boolean }): string | null {
   if (current === null) {
     if (!want.alerts && !want.vercel) return null;
-    const parts = ["# Patchhound's settings for this repo (every setting: npx patchhound init --config-only)."];
+    const parts = ["# Patchhound's settings for this repo. Every setting: https://github.com/CodeGeek04/patchhound/blob/main/docs/github-action.md#3-settings"];
     if (want.alerts) {
       parts.push(
         '',
@@ -281,13 +294,20 @@ async function enableActions(slug: string, action: string, io: InitIO): Promise<
 async function allowPullRequests(slug: string, io: InitIO): Promise<SettingState> {
   const path = `repos/${slug}/actions/permissions/workflow`;
   const now = await io.gh(['api', path]);
-  const settings = now.code === 0 ? (JSON.parse(now.output) as { default_workflow_permissions?: string; can_approve_pull_request_reviews?: boolean }) : null;
-  if (settings?.can_approve_pull_request_reviews) return 'on';
-  const set = await io.gh(['api', '-X', 'PUT', path, '-f', `default_workflow_permissions=${settings?.default_workflow_permissions ?? 'read'}`, '-F', 'can_approve_pull_request_reviews=true']);
-  if (set.code === 0) return 'turned on';
-  io.log(
-    `Could not let GitHub Actions open pull requests (${lastLine(set.output)}). Tick "Allow GitHub Actions to create and approve pull requests" at https://github.com/${slug}/settings/actions (in an organization, an owner may have to allow it first).`,
-  );
+  const tick = `Tick "Allow GitHub Actions to create and approve pull requests" at https://github.com/${slug}/settings/actions (in an organization, an owner may have to allow it first).`;
+  if (now.code !== 0) {
+    // Written back without reading, the default token permissions could change: leave it to the person.
+    io.log(`Could not read whether GitHub Actions may open pull requests (${lastLine(now.output)}). ${tick}`);
+    return 'not on';
+  }
+  const settings = JSON.parse(now.output) as { default_workflow_permissions?: string; can_approve_pull_request_reviews?: boolean };
+  if (settings.can_approve_pull_request_reviews) return 'on';
+  const set = await io.gh(['api', '-X', 'PUT', path, '-f', `default_workflow_permissions=${settings.default_workflow_permissions ?? 'read'}`, '-F', 'can_approve_pull_request_reviews=true']);
+  if (set.code === 0) {
+    io.log('Turned on "Allow GitHub Actions to create and approve pull requests". It is one GitHub setting: it also lets workflows approve pull requests.');
+    return 'turned on';
+  }
+  io.log(`Could not let GitHub Actions open pull requests (${lastLine(set.output)}). ${tick}`);
   return 'not on';
 }
 
@@ -295,33 +315,50 @@ async function allowPullRequests(slug: string, io: InitIO): Promise<SettingState
  * Commits the files on top of the default branch, in a worktree of its own, and opens the setup PR,
  * or updates the one an earlier run opened (the branch is init's own, so it is replaced).
  */
-async function setupPr(top: string, commit: string, slug: string, base: string, files: Map<string, string>, schedule: string, io: InitIO): Promise<string> {
+async function setupPr(top: string, commit: string, slug: string, base: string, files: Map<string, string>, schedule: string, io: InitIO): Promise<{ url: string; head: string }> {
+  // The branch from an earlier run is replaced only when it holds init's own commit and nothing else.
+  const earlier = (await ghGit(top, ['ls-remote', 'origin', `refs/heads/${SETUP_BRANCH}`])).split(/\s/)[0] ?? '';
+  if (earlier) {
+    await ghGit(top, ['fetch', '--quiet', 'origin', earlier]);
+    const extra = (await git(top, ['log', '--format=%s', earlier, '--not', commit])).split('\n').filter(Boolean);
+    if (extra.length > 1 || (extra.length === 1 && extra[0] !== 'Add Patchhound')) {
+      throw new Error(`${SETUP_BRANCH} on GitHub has commits init did not make: merge or close its PR (or delete the branch), then run init again`);
+    }
+  }
   const worktree = await addWorktree(top, commit);
+  let head: string;
   try {
     for (const [path, text] of files) await writeFiles(worktree, path, text);
     await git(worktree, ['add', '--', ...files.keys()]);
     await git(worktree, ['commit', '--quiet', '--no-verify', '-m', 'Add Patchhound']);
-    await ghGit(worktree, ['push', '--quiet', '--force', 'origin', `HEAD:refs/heads/${SETUP_BRANCH}`]);
+    head = await git(worktree, ['rev-parse', 'HEAD']);
+    await ghGit(worktree, ['push', '--quiet', `--force-with-lease=refs/heads/${SETUP_BRANCH}:${earlier}`, 'origin', `HEAD:refs/heads/${SETUP_BRANCH}`]);
   } finally {
     await removeWorktree(top, worktree);
   }
   const body = setupBody(files, schedule);
-  const open = await io.gh(['pr', 'list', '--repo', slug, '--head', SETUP_BRANCH, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""']);
+  // gh matches --head by branch name alone, so a fork's PR from a branch of the same name would match
+  // too: only a PR from this repository's own branch is init's.
+  const open = await io.gh(['pr', 'list', '--repo', slug, '--head', SETUP_BRANCH, '--state', 'open', '--json', 'url,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository | not)][0].url // ""']);
   const existing = open.code === 0 ? open.output.trim() : '';
   if (existing) {
     await io.gh(['pr', 'edit', existing, '--body', body]);
-    return existing;
+    return { url: existing, head };
   }
   const created = await io.gh(['pr', 'create', '--repo', slug, '--base', base, '--head', SETUP_BRANCH, '--title', 'Add Patchhound', '--body', body]);
   if (created.code !== 0) throw new Error(`the branch ${SETUP_BRANCH} is pushed, but the PR could not be opened: ${lastLine(created.output)}`);
-  return lastLine(created.output);
+  return { url: lastLine(created.output), head };
 }
 
-/** Merges the setup PR when the person says so (which starts the first run, once the workflow lands). */
-async function offerMerge(url: string, about: RepoAbout, startsRun: boolean, io: InitIO): Promise<boolean> {
-  if (!io.tty || !(await io.ask(`Merge the setup PR now?${startsRun ? ' That starts the first run.' : ''}`, true))) return false;
+/**
+ * Merges the setup PR when the person says so (which starts the first run, when it adds the
+ * workflow), and only at the commit init pushed.
+ */
+async function offerMerge(url: string, head: string, files: ReadonlyMap<string, string>, about: RepoAbout, io: InitIO): Promise<boolean> {
+  const startsRun = files.has(WORKFLOW_PATH);
+  if (!io.tty || !(await io.ask(`Merge the setup PR now (${[...files.keys()].join(', ')})?${startsRun ? ' That starts the first run.' : ''}`, true))) return false;
   const method = about.allow_merge_commit !== false ? '--merge' : about.allow_squash_merge !== false ? '--squash' : '--rebase';
-  const result = await io.gh(['pr', 'merge', url, method, '--delete-branch']);
+  const result = await io.gh(['pr', 'merge', url, method, '--match-head-commit', head, '--delete-branch']);
   if (result.code === 0) return true;
   io.log(`It could not be merged from here (${lastLine(result.output)}): merge it at ${url}.`);
   return false;
@@ -332,7 +369,8 @@ function setupBody(files: Map<string, string>, schedule: string): string {
   const lines = [`Adds Patchhound. ${when} it checks the dependencies for advisories, alerts on the ones the code exposes, and keeps one pull request open that fixes what it can.`, ''];
   if (files.has(WORKFLOW_PATH)) lines.push(`- \`${WORKFLOW_PATH}\`: the scan, fix and publish jobs. The job that runs this project's code has no write access.`);
   if (files.has(REPO_FILE)) lines.push(`- \`${REPO_FILE}\`: this repo's settings (alerts to Slack, and the fix commits' author for Vercel previews, as chosen).`);
-  lines.push('', "Merging starts the first run. Its report is on the run's Summary page in the Actions tab, and the fix PR, when there is one, shows up under Pull requests.");
+  if (files.has(WORKFLOW_PATH)) lines.push('', "Merging starts the first run. Its report is on the run's Summary page in the Actions tab, and the fix PR, when there is one, shows up under Pull requests.");
+  else lines.push('', 'The next run uses these settings (Run workflow in the Actions tab starts one now).');
   return noDashes(lines.join('\n'));
 }
 
@@ -342,7 +380,8 @@ function setupBody(files: Map<string, string>, schedule: string): string {
  * and gh's sign-in has. An SSH remote uses its key, as before.
  */
 async function ghGit(dir: string, args: readonly string[]): Promise<string> {
-  return git(dir, ['-c', 'credential.https://github.com.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...args]);
+  // gh's sign-in may be only GH_TOKEN in the environment, which git commands do not get by default.
+  return git(dir, ['-c', 'credential.https://github.com.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential', ...args], safeEnv(['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN']));
 }
 
 async function writeFiles(root: string, path: string, text: string): Promise<void> {
@@ -381,7 +420,13 @@ export function realIO(): InitIO {
       }
     },
     tty: Boolean(process.stdin.isTTY),
-    onPath: async (program) => (await runTool(['sh', '-c', `command -v ${program}`], { cwd: process.cwd(), timeoutMs: 10_000 })).code === 0,
+    onPath: async (program) => {
+      const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : [''];
+      for (const folder of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+        for (const extension of extensions) if (await access(join(folder, `${program}${extension}`)).then(() => true, () => false)) return true;
+      }
+      return false;
+    },
     log: (line) => process.stdout.write(`${line}\n`),
   };
 }

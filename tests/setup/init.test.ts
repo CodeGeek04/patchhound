@@ -134,8 +134,12 @@ describe('patchhound init', () => {
     for (const name of ['CLAUDE_CODE_OAUTH_TOKEN', 'TYPESAFE_API_KEY', 'SLACK_WEBHOOK_URL']) expect(calls).toContainEqual(['interactive', 'gh', 'secret', 'set', name, '--repo', 'o/r']);
     expect(calls).toContainEqual(['interactive', 'claude', 'setup-token']);
     expect(calls).toContainEqual(['gh', 'api', '-X', 'PUT', 'repos/o/r/actions/permissions/workflow', '-f', 'default_workflow_permissions=read', '-F', 'can_approve_pull_request_reviews=true']);
-    expect(calls).toContainEqual(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--merge', '--delete-branch']);
-    expect(questions.map((q) => q.split('?')[0])).toEqual(['Does this repo deploy on Vercel', 'Make a Claude token now (claude setup-token)', 'Add your Jev (TypeSafe) API key', 'Send alerts to Slack', 'Merge the setup PR now']);
+    // Merged only at the commit init pushed.
+    const pushed = await git(origin, ['rev-parse', 'patchhound/setup']);
+    expect(calls).toContainEqual(['gh', 'pr', 'merge', 'https://github.com/o/r/pull/7', '--merge', '--match-head-commit', pushed, '--delete-branch']);
+    // gh matches --head by branch name alone: a fork's PR from a branch of the same name is never init's.
+    expect(calls.find((c) => c[1] === 'pr' && c[2] === 'list')!.join(' ')).toContain('[.[] | select(.isCrossRepository | not)][0].url');
+    expect(questions.map((q) => q.split('?')[0])).toEqual(['Does this repo deploy on Vercel', 'Make a Claude token now (claude setup-token)', 'Add your Jev (TypeSafe) API key', 'Send alerts to Slack', 'Merge the setup PR now (.github/workflows/patchhound.yml, .patchhound.yml)']);
 
     // The person's own checkout: same commit, same files, nothing added.
     expect(await git(checkout, ['rev-parse', 'HEAD'])).toBe(head);
@@ -164,6 +168,35 @@ describe('patchhound init', () => {
     expect(calls.some((c) => c[1] === 'pr' && c[2] === 'create')).toBe(false);
     expect(calls.some((c) => c[1] === 'pr' && c[2] === 'edit')).toBe(true);
     expect((await settings(await show('.patchhound.yml'))).fix.commitAs).toBe('actor');
+  });
+
+  it('never replaces a setup branch that has someone else\'s commit on it', async () => {
+    answer = (q) => !q.startsWith('Merge');
+    await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
+    const other = join(root, 'other');
+    await git(root, ['clone', '-q', '-b', 'patchhound/setup', origin, other]);
+    await writeFile(join(other, 'env.txt'), 'DATABASE_URL\n');
+    await git(other, ['add', '-A']);
+    await git(other, ['-c', 'user.email=mate@example.com', '-c', 'user.name=mate', 'commit', '-qm', 'Add the database variables']);
+    await git(other, ['push', '-q', 'origin', 'patchhound/setup']);
+    const theirs = await git(origin, ['rev-parse', 'patchhound/setup']);
+    await expect(init({ dir: checkout, action: ACTION, repo, vercel: true }, io())).rejects.toThrow('patchhound/setup on GitHub has commits init did not make');
+    expect(await git(origin, ['rev-parse', 'patchhound/setup'])).toBe(theirs);
+  });
+
+  it('keeps a dry_run: true someone set, even with the Slack secret there', async () => {
+    await commitToMain({ [WORKFLOW_PATH]: 'name: patchhound\n', '.patchhound.yml': '# quiet for now\ndry_run: true\n' });
+    secrets = 'CLAUDE_CODE_OAUTH_TOKEN\nTYPESAFE_API_KEY\nSLACK_WEBHOOK_URL\n';
+    const result = await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
+    expect(result.files).toEqual([]);
+    expect(logs).toContain(".patchhound.yml sets dry_run: true, so alerts are only printed in the run's log; set it to false to send them to Slack.");
+  });
+
+  it('leaves the pull request setting alone when it cannot read it', async () => {
+    workflowSettings = fail('gh: Not Found (HTTP 404)');
+    const result = await init({ dir: checkout, action: ACTION, repo, vercel: false }, io());
+    expect(result.pullRequests).toBe('not on');
+    expect(calls.some((c) => c[2] === '-X' && c[4] === 'repos/o/r/actions/permissions/workflow')).toBe(false);
   });
 
   it('adds what is missing to a .patchhound.yml already there, keeping its comments and settings', async () => {
